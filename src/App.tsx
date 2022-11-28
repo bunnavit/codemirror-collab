@@ -1,25 +1,21 @@
-import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import { Grid, GridItem } from "@chakra-ui/react";
+import React from "react";
+import { Editor } from "./Editor";
+import { ChangeSet, Text } from "@codemirror/state";
+import { Update } from "@codemirror/collab";
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Grid
+      height="100vh"
+      width="100vw"
+      templateColumns="repeat(1,1fr)"
+      templateRows="repeat(1,1fr)"
+    >
+      <GridItem rowSpan={1} colSpan={1}>
+        <Editor />
+      </GridItem>
+    </Grid>
   );
 }
 
