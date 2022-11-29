@@ -28,14 +28,6 @@ class Text {
   append(other) {
     return this.replace(this.length, this.length, other);
   }
-  /**
-    Retrieve the text between the given points.
-    */
-  slice(from, to = this.length) {
-    let parts = [];
-    this.decompose(from, to, parts, 0);
-    return TextNode.from(parts, to - from);
-  }
 
   /**
     @internal
@@ -107,18 +99,6 @@ class TextLeaf extends Text {
       target.push(text);
     }
   }
-  replace(from, to, text) {
-    if (!(text instanceof TextLeaf)) return super.replace(from, to, text);
-    let lines = appendText(
-      this.text,
-      appendText(text.text, sliceText(this.text, 0, from)),
-      to
-    );
-    let newLen = this.length + text.length - (to - from);
-    if (lines.length <= 32 /* Tree.Branch */)
-      return new TextLeaf(lines, newLen);
-    return TextNode.from(TextLeaf.split(lines, []), newLen);
-  }
   sliceString(from, to = this.length, lineSep = "\n") {
     let result = "";
     for (let pos = 0, i = 0; pos <= to && i < this.text.length; i++) {
@@ -134,21 +114,6 @@ class TextLeaf extends Text {
   flatten(target) {
     for (let line of this.text) target.push(line);
   }
-  static split(text, target) {
-    let part = [],
-      len = -1;
-    for (let line of text) {
-      part.push(line);
-      len += line.length + 1;
-      if (part.length == 32 /* Tree.Branch */) {
-        target.push(new TextLeaf(part, len));
-        part = [];
-        len = -1;
-      }
-    }
-    if (len > -1) target.push(new TextLeaf(part, len));
-    return target;
-  }
 }
 // Nodes provide the tree structure of the `Text` type. They store a
 // number of other nodes or leaves, taking care to balance themselves
@@ -161,61 +126,6 @@ class TextNode extends Text {
     this.length = length;
     this.lines = 0;
     for (let child of children) this.lines += child.lines;
-  }
-  decompose(from, to, target, open) {
-    for (let i = 0, pos = 0; pos <= to && i < this.children.length; i++) {
-      let child = this.children[i],
-        end = pos + child.length;
-      if (from <= end && to >= pos) {
-        let childOpen =
-          open &
-          ((pos <= from ? 1 /* Open.From */ : 0) |
-            (end >= to ? 2 /* Open.To */ : 0));
-        if (pos >= from && end <= to && !childOpen) target.push(child);
-        else child.decompose(from - pos, to - pos, target, childOpen);
-      }
-      pos = end + 1;
-    }
-  }
-  replace(from, to, text) {
-    if (text.lines < this.lines)
-      for (let i = 0, pos = 0; i < this.children.length; i++) {
-        let child = this.children[i],
-          end = pos + child.length;
-        // Fast path: if the change only affects one child and the
-        // child's size remains in the acceptable range, only update
-        // that child
-        if (from >= pos && to <= end) {
-          let updated = child.replace(from - pos, to - pos, text);
-          let totalLines = this.lines - child.lines + updated.lines;
-          if (
-            updated.lines < totalLines >> (5 /* Tree.BranchShift */ - 1) &&
-            updated.lines > totalLines >> (5 /* Tree.BranchShift */ + 1)
-          ) {
-            let copy = this.children.slice();
-            copy[i] = updated;
-            return new TextNode(copy, this.length - (to - from) + text.length);
-          }
-          return super.replace(pos, end, updated);
-        }
-        pos = end + 1;
-      }
-    return super.replace(from, to, text);
-  }
-  sliceString(from, to = this.length, lineSep = "\n") {
-    let result = "";
-    for (let i = 0, pos = 0; i < this.children.length && pos <= to; i++) {
-      let child = this.children[i],
-        end = pos + child.length;
-      if (pos > from && i) result += lineSep;
-      if (from < end && to > pos)
-        result += child.sliceString(from - pos, to - pos, lineSep);
-      pos = end + 1;
-    }
-    return result;
-  }
-  flatten(target) {
-    for (let child of this.children) child.flatten(target);
   }
 
   static from(
@@ -344,78 +254,6 @@ class ChangeDesc {
       result += this.sections[i];
     return result;
   }
-  /**
-    The length of the document after the change.
-    */
-  get newLength() {
-    let result = 0;
-    for (let i = 0; i < this.sections.length; i += 2) {
-      let ins = this.sections[i + 1];
-      result += ins < 0 ? this.sections[i] : ins;
-    }
-    return result;
-  }
-  /**
-    False when there are actual changes in this set.
-    */
-  get empty() {
-    return (
-      this.sections.length == 0 ||
-      (this.sections.length == 2 && this.sections[1] < 0)
-    );
-  }
-
-  /**
-    Get a description of the inverted form of these changes.
-    */
-  get invertedDesc() {
-    let sections = [];
-    for (let i = 0; i < this.sections.length; ) {
-      let len = this.sections[i++],
-        ins = this.sections[i++];
-      if (ins < 0) sections.push(len, ins);
-      else sections.push(ins, len);
-    }
-    return new ChangeDesc(sections);
-  }
-
-  /**
-    @internal
-    */
-  toString() {
-    let result = "";
-    for (let i = 0; i < this.sections.length; ) {
-      let len = this.sections[i++],
-        ins = this.sections[i++];
-      result += (result ? " " : "") + len + (ins >= 0 ? ":" + ins : "");
-    }
-    return result;
-  }
-  /**
-    Serialize this change desc to a JSON-representable value.
-    */
-  toJSON() {
-    return this.sections;
-  }
-  /**
-    Create a change desc from its JSON representation (as produced
-    by [`toJSON`](https://codemirror.net/6/docs/ref/#state.ChangeDesc.toJSON).
-    */
-  static fromJSON(json) {
-    if (
-      !Array.isArray(json) ||
-      json.length % 2 ||
-      json.some((a) => typeof a != "number")
-    )
-      throw new RangeError("Invalid JSON representation of ChangeDesc");
-    return new ChangeDesc(json);
-  }
-  /**
-    @internal
-    */
-  static create(sections) {
-    return new ChangeDesc(sections);
-  }
 }
 
 /**
@@ -453,14 +291,6 @@ class ChangeSet extends ChangeDesc {
   }
 
   /**
-    Get a [change description](https://codemirror.net/6/docs/ref/#state.ChangeDesc) for this change
-    set.
-    */
-  get desc() {
-    return ChangeDesc.create(this.sections);
-  }
-
-  /**
     Serialize this change set to a JSON-representable value.
     */
   toJSON() {
@@ -475,12 +305,6 @@ class ChangeSet extends ChangeDesc {
     return parts;
   }
 
-  /**
-    Create an empty changeset of the given length.
-    */
-  static empty(length) {
-    return new ChangeSet(length ? [length, -1] : [], []);
-  }
   /**
     Create a changeset from its JSON representation (as produced by
     [`toJSON`](https://codemirror.net/6/docs/ref/#state.ChangeSet.toJSON).
@@ -508,12 +332,6 @@ class ChangeSet extends ChangeDesc {
         sections.push(part[0], inserted[i].length);
       }
     }
-    return new ChangeSet(sections, inserted);
-  }
-  /**
-    @internal
-    */
-  static createSet(sections, inserted) {
     return new ChangeSet(sections, inserted);
   }
 }
