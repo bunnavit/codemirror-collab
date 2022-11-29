@@ -224,26 +224,26 @@ function sliceText(text, from, to) {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
-  A change description is a variant of [change set](https://codemirror.net/6/docs/ref/#state.ChangeSet)
-  that doesn't store the inserted text. As such, it can't be
-  applied, but is cheaper to store and manipulate.
+  A change set represents a group of modifications to a document. It
+  stores the document length, and can only be applied to documents
+  with exactly that length.
   */
-class ChangeDesc {
-  // Sections are encoded as pairs of integers. The first is the
-  // length in the current document, and the second is -1 for
-  // unaffected sections, and the length of the replacement content
-  // otherwise. So an insertion would be (0, n>0), a deletion (n>0,
-  // 0), and a replacement two positive numbers.
-  /**
-    @internal
-    */
+
+// Sections are encoded as pairs of integers. The first is the
+// length in the current document, and the second is -1 for
+// unaffected sections, and the length of the replacement content
+// otherwise. So an insertion would be (0, n>0), a deletion (n>0,
+// 0), and a replacement two positive numbers.
+class ChangeSet {
   constructor(
+    sections,
     /**
     @internal
     */
-    sections
+    inserted
   ) {
     this.sections = sections;
+    this.inserted = inserted;
   }
   /**
     The length of the document before the change.
@@ -253,24 +253,6 @@ class ChangeDesc {
     for (let i = 0; i < this.sections.length; i += 2)
       result += this.sections[i];
     return result;
-  }
-}
-
-/**
-  A change set represents a group of modifications to a document. It
-  stores the document length, and can only be applied to documents
-  with exactly that length.
-  */
-class ChangeSet extends ChangeDesc {
-  constructor(
-    sections,
-    /**
-    @internal
-    */
-    inserted
-  ) {
-    super(sections);
-    this.inserted = inserted;
   }
   /**
     Apply the changes to a document, returning the modified
