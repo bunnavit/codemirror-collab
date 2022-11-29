@@ -76,10 +76,13 @@ function pullUpdates(
   version: number
 ): Promise<readonly Update[]> {
   return connection.request({ type: "pullUpdates", version }).then((updates) =>
-    updates.map((u: any) => ({
-      changes: ChangeSet.fromJSON(u.changes),
-      clientID: u.clientID,
-    }))
+    updates.map((u: any) => {
+      console.log("uchanges", u.changes);
+      return {
+        changes: ChangeSet.fromJSON(u.changes),
+        clientID: u.clientID,
+      };
+    })
   );
 }
 
@@ -139,7 +142,7 @@ function peerExtension(startVersion: number, connection: Connection) {
 
 //!rest
 
-const worker = new Worker("./worker.js");
+const worker = new Worker("./worker3.js");
 
 export async function addPeer() {
   let { version, doc } = await getDocument(new Connection(worker, () => 0));
