@@ -7,26 +7,6 @@ class Text {
     */
   constructor() {}
   /**
-    Get the line description around the given position.
-    */
-  lineAt(pos) {
-    if (pos < 0 || pos > this.length)
-      throw new RangeError(
-        `Invalid position ${pos} in document of length ${this.length}`
-      );
-    return this.lineInner(pos, false, 1, 0);
-  }
-  /**
-    Get the description for the given (1-based) line number.
-    */
-  line(n) {
-    if (n < 1 || n > this.lines)
-      throw new RangeError(
-        `Invalid line number ${n} in ${this.lines}-line document`
-      );
-    return this.lineInner(n, true, 1, 0);
-  }
-  /**
     Replace a range of the text with the given content.
     */
   replace(from, to, text) {
@@ -154,9 +134,6 @@ class TextLeaf extends Text {
   flatten(target) {
     for (let line of this.text) target.push(line);
   }
-  scanIdentical() {
-    return 0;
-  }
   static split(text, target) {
     let part = [],
       len = -1;
@@ -184,17 +161,6 @@ class TextNode extends Text {
     this.length = length;
     this.lines = 0;
     for (let child of children) this.lines += child.lines;
-  }
-  lineInner(target, isLine, line, offset) {
-    for (let i = 0; ; i++) {
-      let child = this.children[i],
-        end = offset + child.length,
-        endLine = line + child.lines - 1;
-      if ((isLine ? endLine : end) >= target)
-        return child.lineInner(target, isLine, line, offset);
-      offset = end + 1;
-      line = endLine + 1;
-    }
   }
   decompose(from, to, target, open) {
     for (let i = 0, pos = 0; pos <= to && i < this.children.length; i++) {
@@ -251,21 +217,7 @@ class TextNode extends Text {
   flatten(target) {
     for (let child of this.children) child.flatten(target);
   }
-  scanIdentical(other, dir) {
-    if (!(other instanceof TextNode)) return 0;
-    let length = 0;
-    let [iA, iB, eA, eB] =
-      dir > 0
-        ? [0, 0, this.children.length, other.children.length]
-        : [this.children.length - 1, other.children.length - 1, -1, -1];
-    for (; ; iA += dir, iB += dir) {
-      if (iA == eA || iB == eB) return length;
-      let chA = this.children[iA],
-        chB = other.children[iB];
-      if (chA != chB) return length + chA.scanIdentical(chB, dir);
-      length += chA.length + 1;
-    }
-  }
+
   static from(
     children,
     length = children.reduce((l, ch) => l + ch.length + 1, -1)
@@ -361,30 +313,6 @@ function sliceText(text, from, to) {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const DefaultSplit = /\r\n?|\n/;
-/**
-  Distinguishes different ways in which positions can be mapped.
-  */
-var MapMode = /*@__PURE__*/ (function (MapMode) {
-  /**
-      Map a position to a valid new position, even when its context
-      was deleted.
-      */
-  MapMode[(MapMode["Simple"] = 0)] = "Simple";
-  /**
-      Return null if deletion happens across the position.
-      */
-  MapMode[(MapMode["TrackDel"] = 1)] = "TrackDel";
-  /**
-      Return null if the character _before_ the position is deleted.
-      */
-  MapMode[(MapMode["TrackBefore"] = 2)] = "TrackBefore";
-  /**
-      Return null if the character _after_ the position is deleted.
-      */
-  MapMode[(MapMode["TrackAfter"] = 3)] = "TrackAfter";
-  return MapMode;
-})(MapMode || (MapMode = {}));
 /**
   A change description is a variant of [change set](https://codemirror.net/6/docs/ref/#state.ChangeSet)
   that doesn't store the inserted text. As such, it can't be
@@ -436,39 +364,7 @@ class ChangeDesc {
       (this.sections.length == 2 && this.sections[1] < 0)
     );
   }
-  /**
-    Iterate over the unchanged parts left by these changes. `posA`
-    provides the position of the range in the old document, `posB`
-    the new position in the changed document.
-    */
-  iterGaps(f) {
-    for (let i = 0, posA = 0, posB = 0; i < this.sections.length; ) {
-      let len = this.sections[i++],
-        ins = this.sections[i++];
-      if (ins < 0) {
-        f(posA, posB, len);
-        posB += len;
-      } else {
-        posB += ins;
-      }
-      posA += len;
-    }
-  }
-  /**
-    Iterate over the ranges changed by these changes. (See
-    [`ChangeSet.iterChanges`](https://codemirror.net/6/docs/ref/#state.ChangeSet.iterChanges) for a
-    variant that also provides you with the inserted text.)
-    `fromA`/`toA` provides the extent of the change in the starting
-    document, `fromB`/`toB` the extent of the replacement in the
-    changed document.
-    
-    When `individual` is true, adjacent changes (which are kept
-    separate for [position mapping](https://codemirror.net/6/docs/ref/#state.ChangeDesc.mapPos)) are
-    reported separately.
-    */
-  iterChangedRanges(f, individual = false) {
-    iterChanges(this, f, individual);
-  }
+
   /**
     Get a description of the inverted form of these changes.
     */
@@ -483,53 +379,6 @@ class ChangeDesc {
     return new ChangeDesc(sections);
   }
 
-  mapPos(pos, assoc = -1, mode = MapMode.Simple) {
-    let posA = 0,
-      posB = 0;
-    for (let i = 0; i < this.sections.length; ) {
-      let len = this.sections[i++],
-        ins = this.sections[i++],
-        endA = posA + len;
-      if (ins < 0) {
-        if (endA > pos) return posB + (pos - posA);
-        posB += len;
-      } else {
-        if (
-          mode != MapMode.Simple &&
-          endA >= pos &&
-          ((mode == MapMode.TrackDel && posA < pos && endA > pos) ||
-            (mode == MapMode.TrackBefore && posA < pos) ||
-            (mode == MapMode.TrackAfter && endA > pos))
-        )
-          return null;
-        if (endA > pos || (endA == pos && assoc < 0 && !len))
-          return pos == posA || assoc < 0 ? posB : posB + ins;
-        posB += ins;
-      }
-      posA = endA;
-    }
-    if (pos > posA)
-      throw new RangeError(
-        `Position ${pos} is out of range for changeset of length ${posA}`
-      );
-    return posB;
-  }
-  /**
-    Check whether these changes touch a given range. When one of the
-    changes entirely covers the range, the string `"cover"` is
-    returned.
-    */
-  touchesRange(from, to = from) {
-    for (let i = 0, pos = 0; i < this.sections.length && pos <= to; ) {
-      let len = this.sections[i++],
-        ins = this.sections[i++],
-        end = pos + len;
-      if (ins >= 0 && pos <= to && end >= from)
-        return pos < from && end > to ? "cover" : true;
-      pos = end;
-    }
-    return false;
-  }
   /**
     @internal
     */
@@ -604,42 +453,6 @@ class ChangeSet extends ChangeDesc {
   }
 
   /**
-    Given the document as it existed _before_ the changes, return a
-    change set that represents the inverse of this set, which could
-    be used to go from the document created by the changes back to
-    the document as it existed before the changes.
-    */
-  invert(doc) {
-    let sections = this.sections.slice(),
-      inserted = [];
-    for (let i = 0, pos = 0; i < sections.length; i += 2) {
-      let len = sections[i],
-        ins = sections[i + 1];
-      if (ins >= 0) {
-        sections[i] = ins;
-        sections[i + 1] = len;
-        let index = i >> 1;
-        while (inserted.length < index) inserted.push(Text.empty);
-        inserted.push(len ? doc.slice(pos, pos + len) : Text.empty);
-      }
-      pos += len;
-    }
-    return new ChangeSet(sections, inserted);
-  }
-
-  /**
-    Iterate over the changed ranges in the document, calling `f` for
-    each, with the range in the original document (`fromA`-`toA`)
-    and the range that replaces it in the new document
-    (`fromB`-`toB`).
-    
-    When `individual` is true, adjacent changes are reported
-    separately.
-    */
-  iterChanges(f, individual = false) {
-    iterChanges(this, f, individual);
-  }
-  /**
     Get a [change description](https://codemirror.net/6/docs/ref/#state.ChangeDesc) for this change
     set.
     */
@@ -661,58 +474,7 @@ class ChangeSet extends ChangeDesc {
     }
     return parts;
   }
-  /**
-    Create a change set for the given changes, for a document of the
-    given length, using `lineSep` as line separator.
-    */
-  static of(changes, length, lineSep) {
-    let sections = [],
-      inserted = [],
-      pos = 0;
-    let total = null;
-    function flush(force = false) {
-      if (!force && !sections.length) return;
-      if (pos < length) addSection(sections, length - pos, -1);
-      let set = new ChangeSet(sections, inserted);
-      total = total ? total.compose(set.map(total)) : set;
-      sections = [];
-      inserted = [];
-      pos = 0;
-    }
-    function process(spec) {
-      if (Array.isArray(spec)) {
-        for (let sub of spec) process(sub);
-      } else if (spec instanceof ChangeSet) {
-        if (spec.length != length)
-          throw new RangeError(
-            `Mismatched change set length (got ${spec.length}, expected ${length})`
-          );
-        flush();
-        total = total ? total.compose(spec.map(total)) : spec;
-      } else {
-        let { from, to = from, insert } = spec;
-        if (from > to || from < 0 || to > length)
-          throw new RangeError(
-            `Invalid change range ${from} to ${to} (in doc of length ${length})`
-          );
-        let insText = !insert
-          ? Text.empty
-          : typeof insert == "string"
-          ? Text.of(insert.split(lineSep || DefaultSplit))
-          : insert;
-        let insLen = insText.length;
-        if (from == to && insLen == 0) return;
-        if (from < pos) flush();
-        if (from > pos) addSection(sections, from - pos, -1);
-        addSection(sections, to - from, insLen);
-        addInsert(inserted, sections, insText);
-        pos = to;
-      }
-    }
-    process(changes);
-    flush(!total);
-    return total;
-  }
+
   /**
     Create an empty changeset of the given length.
     */
@@ -757,27 +519,6 @@ class ChangeSet extends ChangeDesc {
 }
 
 ////// functions
-
-function addSection(sections, len, ins, forceJoin = false) {
-  if (len == 0 && ins <= 0) return;
-  let last = sections.length - 2;
-  if (last >= 0 && ins <= 0 && ins == sections[last + 1]) sections[last] += len;
-  else if (len == 0 && sections[last] == 0) sections[last + 1] += ins;
-  else if (forceJoin) {
-    sections[last] += len;
-    sections[last + 1] += ins;
-  } else sections.push(len, ins);
-}
-function addInsert(values, sections, value) {
-  if (value.length == 0) return;
-  let index = (sections.length - 2) >> 1;
-  if (index < values.length) {
-    values[values.length - 1] = values[values.length - 1].append(value);
-  } else {
-    while (values.length < index) values.push(Text.empty);
-    values.push(value);
-  }
-}
 
 const iterChanges = (desc, f, individual) => {
   let inserted = desc.inserted;
@@ -855,34 +596,3 @@ self.onmessage = function (event) {
     resp({ version: updates.length, doc: doc.toString() });
   }
 };
-
-const iterChanges2 = (desc, f, individual) => {
-  let inserted = desc.inserted;
-  for (let posA = 0, posB = 0, i = 0; i < desc.sections.length; ) {
-    let len = desc.sections[i++],
-      ins = desc.sections[i++];
-    if (ins < 0) {
-      posA += len;
-      posB += len;
-    } else {
-      let endA = posA,
-        endB = posB,
-        text = EMPTY_TEXT;
-      for (;;) {
-        endA += len;
-        endB += ins;
-        if (ins && inserted) text = text.append(inserted[(i - 2) >> 1]);
-        if (individual || i == desc.sections.length || desc.sections[i + 1] < 0)
-          break;
-        len = desc.sections[i++];
-        ins = desc.sections[i++];
-      }
-      f(posA, endA, posB, endB, text);
-      posA = endA;
-      posB = endB;
-    }
-  }
-};
-
-Text.empty = /*@__PURE__*/ new TextLeaf([""], 0);
-const EMPTY_TEXT = { text: [""], length: 0 };
