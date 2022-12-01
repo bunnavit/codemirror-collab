@@ -31,7 +31,9 @@ class Connection {
   private _request(value: any): Promise<any> {
     return new Promise((resolve) => {
       let channel = new MessageChannel();
-      channel.port2.onmessage = (event) => resolve(JSON.parse(event.data));
+      channel.port2.onmessage = (event) => {
+        return resolve(JSON.parse(event.data));
+      };
       this.worker.postMessage(JSON.stringify(value), [channel.port1]);
     });
   }
@@ -77,7 +79,6 @@ function pullUpdates(
 ): Promise<readonly Update[]> {
   return connection.request({ type: "pullUpdates", version }).then((updates) =>
     updates.map((u: any) => {
-      console.log("uchanges", u.changes);
       return {
         changes: ChangeSet.fromJSON(u.changes),
         clientID: u.clientID,
@@ -116,6 +117,7 @@ function peerExtension(startVersion: number, connection: Connection) {
         if (this.pushing || !updates.length) return;
         this.pushing = true;
         let version = getSyncedVersion(this.view.state);
+        console.log(updates);
         await pushUpdates(connection, version, updates);
         this.pushing = false;
         // Regardless of whether the push failed or new updates came in
