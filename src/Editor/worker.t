@@ -3,15 +3,18 @@ type Text  = list<string>;
 type TextLeaf = sig<TextLeaf>;
 type BaseText = sig<BaseText>;
 
-class BaseText : TextLeaf {
-    ctor <Text a, int b> TextLeaf(a,b) {
-        
+class BaseText {
+    ctor <> {}
+    method <> decompose <int from, int until, list<TextLeaf> target, int open> {
+        $stderr <:: "should not fire" <:: '\n';
     }
-
+    method <> testDecompose <> {
+        this->decompose(2, 3, [emptyText()], 1);
+    }
 }
 
 
-class TextLeaf {
+class TextLeaf: BaseText {
 
     var text: Text;
     var length: int;
@@ -210,6 +213,7 @@ function <> testing2 <> {
 function <int> main <> {
     testing();
     testing2();
+
     return 0;
 }
 

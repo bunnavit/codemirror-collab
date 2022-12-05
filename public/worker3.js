@@ -114,6 +114,23 @@ class TextLeaf extends Text {
   flatten(target) {
     for (let line of this.text) target.push(line);
   }
+
+  static split(text, target) {
+    let part = [],
+      len = -1;
+    for (let line of text) {
+      part.push(line);
+      len += line.length + 1;
+      if (part.length == 32 /* Tree.Branch */) {
+        target.push(new TextLeaf(part, len));
+        part = [];
+        len = -1;
+      }
+    }
+
+    if (len > -1) target.push(new TextLeaf(part, len));
+    return target;
+  }
 }
 // Nodes provide the tree structure of the `Text` type. They store a
 // number of other nodes or leaves, taking care to balance themselves
@@ -126,6 +143,38 @@ class TextNode extends Text {
     this.length = length;
     this.lines = 0;
     for (let child of children) this.lines += child.lines;
+  }
+
+  decompose(from, to, target, open) {
+    for (let i = 0, pos = 0; pos <= to && i < this.children.length; i++) {
+      let child = this.children[i],
+        end = pos + child.length;
+      if (from <= end && to >= pos) {
+        let childOpen =
+          open &
+          ((pos <= from ? 1 /* Open.From */ : 0) |
+            (end >= to ? 2 /* Open.To */ : 0));
+        if (pos >= from && end <= to && !childOpen) target.push(child);
+        else child.decompose(from - pos, to - pos, target, childOpen);
+      }
+      pos = end + 1;
+    }
+  }
+  sliceString(from, to = this.length, lineSep = "\n") {
+    let result = "";
+    for (let i = 0, pos = 0; i < this.children.length && pos <= to; i++) {
+      let child = this.children[i],
+        end = pos + child.length;
+      if (pos > from && i) result += lineSep;
+      if (from < end && to > pos)
+        result += child.sliceString(from - pos, to - pos, lineSep);
+      pos = end + 1;
+    }
+    return result;
+  }
+
+  flatten(target) {
+    for (let child of this.children) child.flatten(target);
   }
 
   static from(
