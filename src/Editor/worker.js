@@ -253,12 +253,12 @@ export class TextNode extends Text {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 Text.empty = /*@__PURE__*/ new TextLeaf([""], 0);
-function textLength(text) {
+export function textLength(text) {
   let length = -1;
   for (let line of text) length += line.length + 1;
   return length;
 }
-function appendText(text, target, from = 0, to = 1e9) {
+export function appendText(text, target, from = 0, to = 1e9) {
   for (let pos = 0, i = 0, first = true; i < text.length && pos <= to; i++) {
     let line = text[i],
       end = pos + line.length;
@@ -274,7 +274,7 @@ function appendText(text, target, from = 0, to = 1e9) {
   }
   return target;
 }
-function sliceText(text, from, to) {
+export function sliceText(text, from, to) {
   return appendText(text, [""], from, to);
 }
 

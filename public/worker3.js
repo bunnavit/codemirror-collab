@@ -357,7 +357,7 @@ const iterChanges = (desc, f, individual) => {
 // version)
 var updates = [];
 // The current document
-var doc = Text.of([""]);
+var doc = Text.of(["first", "second", "third"]);
 
 //!authorityMessage
 var pending = [];
@@ -371,7 +371,6 @@ self.onmessage = function (event) {
   console.log(data);
 
   if (data.type == "pullUpdates") {
-    console.log("beforepull1", updates.slice(data.version));
     if (data.version < updates.length) resp(updates.slice(data.version));
     else pending.push(resp);
   } else if (data.type == "pushUpdates") {
@@ -387,6 +386,8 @@ self.onmessage = function (event) {
         updates.push({ changes: changes, clientID: update.clientID });
 
         doc = changes.apply(doc);
+
+        console.log("doc", doc);
       }
       resp(true);
       // Notify pending requests
@@ -396,3 +397,10 @@ self.onmessage = function (event) {
     resp({ version: updates.length, doc: doc.toString() });
   }
 };
+
+///////// tests //////
+
+var text = ["first", "second", "third"];
+var target = ["target1", "target2"];
+appendText(text, target, 0, 1e9);
+console.log(target);

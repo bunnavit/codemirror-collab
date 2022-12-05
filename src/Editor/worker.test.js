@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { TextLeaf, Text } from "./worker";
+import { TextLeaf, Text, appendText, textLength, sliceText } from "./worker";
 
 describe("test describe", () => {
   test("testlol", () => {
@@ -32,5 +32,32 @@ describe("TextLeaf", () => {
     const doc = Text.of(["some text"]);
     expect(doc.text.length).toBe(1);
     expect(doc.length).toBe(9);
+  });
+
+  test("sliceString", () => {
+    var textLeaf = new TextLeaf(["first", "second", "third"], 18);
+    var text = textLeaf.sliceString(6);
+    expect(text).toBe("second\nthird");
+    text = textLeaf.sliceString(6, 12, "\n");
+    expect(text).toBe("second");
+  });
+});
+
+describe("Utilities", () => {
+  test("appendText", () => {
+    var text = ["first", "second", "third"];
+    var target = ["target1", "target2"];
+    appendText(text, target, 0, 1e9);
+    expect(target).toEqual(["target1", "target2first", "second", "third"]);
+  });
+  test("textLength", () => {
+    var text = ["first", "second", "third"];
+    var length = textLength(text);
+    expect(length).toEqual(18);
+  });
+  test("sliceText", () => {
+    var text = ["first", "second", "third"];
+    var slicedText = sliceText(text, 0, 1e9);
+    expect(slicedText).toEqual(text);
   });
 });
