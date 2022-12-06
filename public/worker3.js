@@ -76,11 +76,6 @@ class TextLeaf extends Text {
   }
 
   decompose(from, to, target, open) {
-    console.log("decomposing");
-    console.log("from", from);
-    console.log("to", to);
-    console.log("target", JSON.parse(JSON.stringify(target)));
-    console.log("open", open);
     let text =
       from <= 0 && to >= this.length
         ? this
@@ -103,8 +98,6 @@ class TextLeaf extends Text {
     } else {
       target.push(text);
     }
-    console.log("target", target);
-    console.log("end");
   }
   sliceString(from, to = this.length, lineSep = "\n") {
     let result = "";
