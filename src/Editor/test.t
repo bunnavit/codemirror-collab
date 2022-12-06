@@ -1,4 +1,5 @@
 class Base {
+    method a
     ctor <> {} 
     method <> f <> {
         $stdout <:: "should never fire" <:: '\n';

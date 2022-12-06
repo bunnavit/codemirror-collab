@@ -4,6 +4,7 @@ type TextLeaf = sig<TextLeaf>;
 type BaseText = sig<BaseText>;
 
 class BaseText {
+    method length: int;
     ctor <> {}
     method <> decompose <int from, int until, list<TextLeaf> target, int open> {
         $stderr <:: "should not fire" <:: '\n';
@@ -17,16 +18,17 @@ class BaseText {
 class TextLeaf: BaseText {
 
     var text: Text;
-    var length: int;
 
-    ctor <Text a, int b> text(a), length(b) {}
+    ctor <Text a, int b> text(a) {
+        this->length = b;
+    }
 
     ctor <Text a> text(a) {
-        length = textLength(a);
+        this->length = textLength(a);
     }
 
     method <int> getLength <> {
-        return length;
+        return this->length;
     }
     
     method <> getChildren <> {}
@@ -38,12 +40,12 @@ class TextLeaf: BaseText {
     // open: 1 => open from, 2 => open to
     method <> decompose <int from, int until, list<TextLeaf> target, int open>{
         var newText: TextLeaf;
-        if(from <= 0 && until >= length){
-            newText = TextLeaf(text, length);
+        if(from <= 0 && until >= this->length){
+            newText = TextLeaf(text, this->length);
         } else {
             newText = TextLeaf(
                 sliceText(text, from, until),
-                @min(until, length) - @max(0, from)
+                @min(until, this->length) - @max(0, from)
             );
         }
         // open from
@@ -66,7 +68,7 @@ class TextLeaf: BaseText {
     }
 
     method <string> sliceString <int from> {
-        var until = length;
+        var until = this->length;
         var lineSep = "\n";
         return sliceString(from, until, lineSep);
     }
@@ -75,7 +77,7 @@ class TextLeaf: BaseText {
         var result = "";
         var pos = 0;
         var i = 0;
-        for (var iter = @fwd text; pos <= until && i < length; iter++){
+        for (var iter = @fwd text; pos <= until && i < this->length; iter++){
             var line = @elt iter;
             var end = pos + |line|;
             if (pos > from && i) result = result + lineSep;
@@ -105,8 +107,8 @@ function <TextLeaf> emptyText <> {
 }
 
 // splits single textLeaf into multiple textLeafs
-function <list<BaseText>> split <Text text> {
-    var target: list<BaseText>;
+function <list<TextLeaf>> split <Text text> {
+    var target: list<TextLeaf>;
     var part: Text;
     var len = -1;
     for var line in text do {
