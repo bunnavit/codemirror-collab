@@ -239,7 +239,6 @@ function <BaseText> nodeFromChildren <list<BaseText> children, int length> {
             currentLen += child->length + 1;
             currentChunk ~> child;
         }
-
     }
 
     function <> flush <> {
@@ -265,7 +264,13 @@ function <BaseText> nodeFromChildren <list<BaseText> children, int length> {
     return TextNode(chunked, length);
 }
 
-// TODO: create nodeFromChildren without length here
+function <BaseText> nodeFromChildren <list<BaseText> children> {
+    var length = -1;
+    for var child in children do {
+        length += child->length + 1;
+    }
+    return nodeFromChildren(children, length);
+}
 
 ////////////////// UTILITIES /////////////////
 
@@ -467,28 +472,32 @@ function <> textNodeTest <> {
     function <> nodeFromChildrenTest <> {
         var children = generateText(34);
 
-        var textNode = nodeFromChildren(children, 228);
-        assert(textNode->isLeaf() == false);
-        assert(textNode->length == 228);
-        assert(textNode->getLines() == 34);
+        var textNodes: list<BaseText>;
+        textNodes ~> nodeFromChildren(children);
+        textNodes ~> nodeFromChildren(children, 228);
 
-        var nodeChildren = textNode->getChildren();
+        for var textNode in textNodes do {
+            assert(textNode->isLeaf() == false);
+            assert(textNode->length == 228);
+            assert(textNode->getLines() == 34);
 
-        var textLeaf1 = nodeChildren[0];
-        assert(textLeaf1->isLeaf());
-        assert(textLeaf1->length == 214);
-        assert(|textLeaf1->getText()| == 32);
-        assert(textLeaf1->getLines() == 32);
-        assert(|textLeaf1->getChildren()| == 0);
+            var nodeChildren = textNode->getChildren();
 
-        var textLeaf2 = nodeChildren[1];
-        assert(textLeaf2->length == 13);
-        assert(textLeaf2->getLines() == 2);
-        var text = textLeaf2->getText();
-        var expected = ["text33", "text34"];
-        assertListEq(text, expected);
+            var textLeaf1 = nodeChildren[0];
+            assert(textLeaf1->isLeaf());
+            assert(textLeaf1->length == 214);
+            assert(|textLeaf1->getText()| == 32);
+            assert(textLeaf1->getLines() == 32);
+            assert(|textLeaf1->getChildren()| == 0);
+
+            var textLeaf2 = nodeChildren[1];
+            assert(textLeaf2->length == 13);
+            assert(textLeaf2->getLines() == 2);
+            var text = textLeaf2->getText();
+            var expected = ["text33", "text34"];
+            assertListEq(text, expected);
+        }
     }
-
     ctorTest();
     leafFromChildrenTest();
     nodeFromChildrenTest();
