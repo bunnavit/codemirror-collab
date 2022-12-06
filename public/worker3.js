@@ -181,6 +181,9 @@ class TextNode extends Text {
     children,
     length = children.reduce((l, ch) => l + ch.length + 1, -1)
   ) {
+    console.log("children", children);
+    console.log("length", length);
+    console.log("lines?", children[0].lines);
     let lines = 0;
     for (let ch of children) lines += ch.lines;
     if (lines < 32 /* Tree.Branch */) {
@@ -239,7 +242,10 @@ class TextNode extends Text {
     }
     for (let child of children) add(child);
     flush();
-    return chunked.length == 1 ? chunked[0] : new TextNode(chunked, length);
+    let output =
+      chunked.length == 1 ? chunked[0] : new TextNode(chunked, length);
+    console.log("output", output);
+    return output;
   }
 }
 
