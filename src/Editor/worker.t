@@ -7,7 +7,7 @@ class BaseText {
     method length: int;
     ctor <> {}
     method <> decompose <int from, int until, list<TextLeaf> target, int open> {
-        $stderr <:: "should not fire" <:: '\n';
+        $stderr <:: "should never be invoked" <:: '\n';
     }
     method <> testDecompose <> {
         this->decompose(2, 3, [emptyText()], 1);
@@ -25,10 +25,6 @@ class TextLeaf: BaseText {
 
     ctor <Text a> text(a) {
         this->length = textLength(a);
-    }
-
-    method <int> getLength <> {
-        return this->length;
     }
     
     method <> getChildren <> {}
@@ -55,7 +51,7 @@ class TextLeaf: BaseText {
                 newText->getText(), sliceText(prev->getText()), 0, newText->getLength()
             );
             if(|joined| <= 32){
-                target ~> TextLeaf(joined, prev->getLength() + newText->getLength());
+                target ~> TextLeaf(joined, prev->length + newText->length);
             } else {
                 var mid: int = |joined| ~> 1;
                 target ~> TextLeaf(sliceText(joined, 0, mid));
