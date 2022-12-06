@@ -33,7 +33,7 @@ class TextLeaf: BaseText {
         return text;
     }
 
-    // open: 1 => open from, 2 => open to
+    // open: 1 => open from, others => open to
     method <> decompose <int from, int until, list<TextLeaf> target, int open>{
         var newText: TextLeaf;
         if(from <= 0 && until >= this->length){
@@ -48,7 +48,7 @@ class TextLeaf: BaseText {
         if(open & 1){
             var prev: TextLeaf = @poptail target;
             var joined: Text = appendText(
-                newText->getText(), sliceText(prev->getText()), 0, newText->getLength()
+                newText->getText(), cloneText(prev->getText()), 0, newText->length
             );
             if(|joined| <= 32){
                 target ~> TextLeaf(joined, prev->length + newText->length);
@@ -157,61 +157,105 @@ function <Text> appendText <Text text, Text target, int from, int until>{
     return target;
 }
 
-function <Text> sliceText <Text text> {
-    return sliceText(text, 0, |text|);
-}
-
 function <Text> sliceText <Text text, int from, int until> {
     return appendText(text, [""], from, until);
 }
 
-// testing func
-function <> testing <> {
-
-    var inputText: Text = ["first", "second", "third"];
-
-    // TextLeaf sliceString test
-    var textLeaf = TextLeaf(inputText, 18);
-    var text = textLeaf->sliceString(6);
-    assert (text == "second\nthird");
-    text = textLeaf->sliceString(6, 12, "\n");
-    assert (text == "second");
-
-    // appendText
-    var target: Text = ["one", "two"];
-    appendText(inputText, target, 0, 1_000_000);
-    var expected: Text = ["one", "twofirst", "second", "third"];
-    var targetIter = @fwd target;
-    for (var eIter = @fwd expected; eIter; eIter++){
-        assert (@elt eIter == @elt targetIter);
-        targetIter++;
+function <Text> cloneText <Text text> {
+    var newText: Text;
+    for var line in text do {
+        newText ~> line;
     }
-
-    // textLength
-    var length = textLength(inputText);
-    assert (length == 18);
-
-    // sliceText
-    var outputText = sliceText(inputText, 0, 1_000_000);
-    var iIter = @fwd inputText;
-    for (var oIter = @fwd outputText; oIter; oIter++){
-        assert(@elt oIter == @elt iIter);
-        iIter++;
-    }
-
+    return newText;
 }
-
-function <> testing2 <> {
-    var l: list<string>;
-    l ~> "hello" ~> "world";
-    $stdout <:j: l <:: '\n';
-}
-
 
 function <int> main <> {
     testing();
-    testing2();
+    utilTest();
+    textLeafTest();
 
     return 0;
+}
+
+/////////////// TESTING ////////////////////
+
+function <> testing <> {
+
+}
+
+function <> utilTest <> {
+    function <> appendTextTest <> {
+        var text: Text =  ["first", "second", "third"];
+        var target: Text = ["target1", "target2"];
+        appendText(text, target, 0, 1_000_000);
+        var expected: Text = ["target1", "target2first", "second", "third"];
+        assertListEq(target, expected);
+
+        text = ["fourth"];
+        target = ["first", "second", "third", ""];
+        appendText(text, target, 0, 6);
+        expected = ["first", "second", "third", "fourth"];
+        assertListEq(target, expected);
+    }
+
+    function <> textLengthTest <> {
+        var text: Text =  ["first", "second", "third"];
+        var length = textLength(text);
+        assert (length == 18);
+    }
+
+    function <> sliceTextTest <> {
+        var text: Text =  ["first", "second", "third"];
+        var outputText = sliceText(text, 0, 1_000_000);
+        assertListEq(text, outputText);
+    }
+    appendTextTest();
+    textLengthTest();
+    sliceTextTest();
+}
+
+function <> textLeafTest <> {
+    function <> sliceString <> {
+        var textLeaf = TextLeaf(["first", "second", "third"], 18);
+        var text = textLeaf->sliceString(6);
+        assert (text == "second\nthird");
+        text = textLeaf->sliceString(6, 12, "\n");
+        assert (text == "second");
+    }
+
+    // delete "third"
+    function <> decomposeDeletion <> {
+        var textLeaf: TextLeaf = TextLeaf(["first", "second", "third"], 18);
+        var target: list<TextLeaf>;
+        textLeaf->decompose(0, 13, target, 2);
+        assert (|target| == 1);
+        assert (target[0]->length == 13);
+        var text = target[0]->getText();
+        var expected: Text = ["first", "second", ""];
+        assertListEq(text, expected);
+    }
+    // add "fourth"
+    function <> decomposeAddition <> {
+        var textLeaf: TextLeaf = TextLeaf(["fourth"], 6);
+        var target: list<TextLeaf> = [TextLeaf(["first", "second", "third", ""], 19)];
+        textLeaf->decompose(0, 6, target, 3);
+        assert(|target| == 1);
+        assert(target[0]->length == 25);
+        var text = target[0]->getText();
+        var expected: Text = ["first", "second", "third", "fourth"];
+        assertListEq(text, expected);
+    }
+    sliceString();
+    decomposeDeletion();
+    decomposeAddition();
+}
+
+function <> assertListEq <list<string> a, list<string> b> {
+    assert (|a| == |b|);
+    var bIter = @fwd b;
+    for (var aIter = @fwd a; aIter; aIter ++){
+        assert(@elt aIter == @elt bIter);
+        bIter++;
+    }
 }
 

@@ -41,6 +41,24 @@ describe("TextLeaf", () => {
     text = textLeaf.sliceString(6, 12, "\n");
     expect(text).toBe("second");
   });
+
+  test("decompose deletion ('third')", () => {
+    var textLeaf = new TextLeaf(["first", "second", "third"], 18);
+    var target = [];
+    textLeaf.decompose(0, 13, target, 2);
+    expect(target.length).toBe(1);
+    expect(target[0].length).toBe(13);
+    expect(target[0].text).toEqual(["first", "second", ""]);
+  });
+
+  test("decompose addition", () => {
+    var textLeaf = new TextLeaf(["fourth"], 6);
+    var target = [new TextLeaf(["first", "second", "third", ""], 19)];
+    textLeaf.decompose(0, 6, target, 3);
+    expect(target.length).toBe(1);
+    expect(target[0].length).toBe(25);
+    expect(target[0].text).toEqual(["first", "second", "third", "fourth"]);
+  });
 });
 
 describe("Utilities", () => {
