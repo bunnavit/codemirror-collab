@@ -2,6 +2,13 @@ type Text  = list<string>;
 type BaseText = sig<BaseText>;
 type TextLeaf = sig<TextLeaf>;
 type TextNode = sig<TextNode>;
+type ChangeSet = sig<ChangeSet>;
+type JSONChange = 
+<
+    int I,
+    string S,
+    list<JSONChange> L
+>;
 
 class BaseText {
     method length: int;
@@ -351,6 +358,32 @@ function <BaseText> nodeFromChildren <list<BaseText> children> {
         length += child->length + 1;
     }
     return nodeFromChildren(children, length);
+}
+
+////////////////// CHANGE SET ////////////////
+
+class ChangeSet {
+    method sections: list<int>;
+    method inserted: list<BaseText>; 
+    ctor <list<int> s, list<BaseText> i> sections(s), inserted(i) {}
+
+    // The length of the document before the change
+    method <int> getLength <> {
+        var result = 0;
+        for (var iter = @fwd sections; iter; iter++){
+            result += @elt iter;
+            iter++;
+        }
+        return result;
+    }
+}
+
+function <ChangeSet> changeSetFromJSON <list<JSONChange> json> {
+    var sections: list<int>;
+    var inserted: list<BaseText>;
+    for(var iter = @fwd json; iter; iter++){
+        
+    }
 }
 
 ////////////////// UTILITIES /////////////////

@@ -298,6 +298,8 @@ class ChangeSet {
     */
     inserted
   ) {
+    console.log("sections", sections);
+    console.log("inserted", inserted);
     this.sections = sections;
     this.inserted = inserted;
   }
@@ -348,6 +350,7 @@ class ChangeSet {
     [`toJSON`](https://codemirror.net/6/docs/ref/#state.ChangeSet.toJSON).
     */
   static fromJSON(json) {
+    console.log("json", json);
     if (!Array.isArray(json))
       throw new RangeError("Invalid JSON representation of ChangeSet");
     let sections = [],
