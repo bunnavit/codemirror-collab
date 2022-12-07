@@ -392,7 +392,7 @@ function <Text> cloneText <Text text> {
 function <int> main <> {
     testing();
 
-    generateInput(10000);
+    // generateInput(10000);
 
     return 0;
 }
