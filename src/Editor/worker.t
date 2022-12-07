@@ -6,9 +6,6 @@ type TextNode = sig<TextNode>;
 class BaseText {
     method length: int;
     ctor <> {}
-    method <> testDecompose <> {
-        this->decompose(2, 3, [emptyText()], 1);
-    }  
     method <int> getLines <> {
         return this->getLines();
     }
@@ -40,8 +37,27 @@ class BaseText {
     method <> flatten <Text target> {
         this->flatten(target);
     }
+
+    // Replace a range of the text with the given content
+    method <> replace <> {
+        //TODO
+    }
+
+    // Append another document to this one
+    method <> append <> {
+        // TODO
+    }
+
+    // Convert the document to an array of lines 
+    // which can be deserialized again via makeDoc
+    method <Text> toJSON <> {
+        var lines: Text;
+        this->flatten(lines);
+        return lines;
+    }
 }
 
+// Create document with array of lines
 function <BaseText> makeDoc <Text text> {
     if(|text| == 0){
         $stderr <:: "A document must have at least one line" <:: '\n';
