@@ -26,7 +26,11 @@ class Text {
     Append another document to this one.
     */
   append(other) {
-    return this.replace(this.length, this.length, other);
+    console.log("other", JSON.parse(JSON.stringify(other)));
+    console.log(other instanceof TextNode);
+    const output = this.replace(this.length, this.length, other);
+    console.log("output", output);
+    return output;
   }
 
   /**
@@ -418,7 +422,7 @@ const generateText = (count) => {
 // version)
 var updates = [];
 // The current document
-var doc = Text.of(generateText(100000));
+var doc = Text.of(generateText(34));
 
 console.log("doc", doc);
 

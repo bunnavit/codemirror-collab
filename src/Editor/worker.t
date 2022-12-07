@@ -39,13 +39,22 @@ class BaseText {
     }
 
     // Replace a range of the text with the given content
-    method <> replace <> {
-        //TODO
+    method <BaseText> replace <int from, int until, list<BaseText> text> {
+        var parts: list<BaseText>;
+        // open to
+        this->decompose(0, from, parts, 2);
+        if(|text|){
+            // open from, open to
+            this->decompose(0, |text|, parts, 1 | 2);
+        }
+        // open from
+        this->decompose(until, this->length, parts, 1);
+        return nodeFromChildren(parts, this->length - (until - from) + |text|);
     }
 
     // Append another document to this one
-    method <> append <> {
-        // TODO
+    method <BaseText> append <list<BaseText> other> {
+        return replace(this->length, this->length, other);
     }
 
     // Convert the document to an array of lines 
@@ -69,6 +78,10 @@ function <BaseText> makeDoc <Text text> {
 
 //////////////// TEXT LEAF //////////////////////
 
+
+// Leaves store an array of line strings. There are always line breaks
+// between these strings. Leaves are limited in size and have to be
+// contained in TextNode instances for bigger documents.
 class TextLeaf: BaseText {
 
     var text: Text;
@@ -97,7 +110,7 @@ class TextLeaf: BaseText {
         return true;
     }
 
-    // open: 1 => open from, others => open to
+    // open: 1 => open from, 2 => open to
     method <> decompose <int from, int until, list<BaseText> target, int open>{
         var newText: TextLeaf;
         if(from <= 0 && until >= this->length){
@@ -176,6 +189,10 @@ function <list<TextLeaf>> leafsFromText <Text text> {
 
 ///////////////// TEXT NODE //////////////////////
 
+// Nodes provide the tree structure of the `Text` type. They store a
+// number of other nodes or leaves, taking care to balance themselves
+// on changes. There are implied line breaks _between_ the children of
+// a node (but not before the first or after the last child).
 class TextNode: BaseText {
     var children: list<BaseText>;
     var lines: int;
