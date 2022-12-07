@@ -1,7 +1,7 @@
-type TextNode = sig<TextNode>;
 type Text  = list<string>;
-type TextLeaf = sig<TextLeaf>;
 type BaseText = sig<BaseText>;
+type TextLeaf = sig<TextLeaf>;
+type TextNode = sig<TextNode>;
 
 class BaseText {
     method length: int;
@@ -117,16 +117,14 @@ class TextLeaf: BaseText {
     method <string> sliceString <int from, int until, string lineSep> {
         var result = "";
         var pos = 0;
-        var i = 0;
-        for (var iter = @fwd text; pos <= until && i < this->length; iter++){
+        for (var iter = @fwd text; pos <= until && iter; iter++){
             var line = @elt iter;
             var end = pos + |line|;
-            if (pos > from && i) result = result + lineSep;
+            if (pos > from && line != @head text) result = result + lineSep;
             if (from < end && until > pos){
                 result = result + $substring(line, @max(0, from - pos), until - pos);
             }
             pos = end + 1;
-            i++;
         }
         return result;
     }
@@ -138,7 +136,7 @@ class TextLeaf: BaseText {
     }
 }
 
-// splits single textLeaf into multiple textLeafs
+// convert text into multiple textLeafs
 function <list<TextLeaf>> split <Text text> {
     var target: list<TextLeaf>;
     var part: Text;
@@ -178,6 +176,41 @@ class TextNode: BaseText {
     }
     method <bool> isLeaf <> {
         return false;
+    }
+
+    method <> decompose <int from, int until, list<BaseText> target, int open>{
+        var pos = 0;
+        for (var iter = @fwd children; pos <= until && iter; iter++){
+            var child = @elt iter;
+            var end = pos + child->length;
+            if (from <= end && until >= pos) {
+                // 1 => open from, 2 => open to
+                var childOpen = open & ((pos <= from ? 1 : 0) | (end >= until ? 2 : 0));
+                if (pos >= from && end <= until && !childOpen){
+                    target ~> child;
+                } else {
+                    child->decompose(from - pos, until - pos, target, childOpen);
+                }
+            }
+            pos = end + 1;
+        }
+    }
+
+    method <string> sliceString <int from, int until, string lineSep> {
+        var result = "";
+        var pos = 0;
+        for (var iter = @fwd children; iter && pos <= until; iter++) {
+            var child = @elt iter;
+            var end = pos + child->length;
+            if(pos > from && child != @head children){
+                result = result + lineSep;
+            }
+            if(from < end && until > pos){
+                result = result + child->sliceString(from - pos, until - pos, lineSep);
+            }
+            pos = end + 1;
+        }
+        return result;
     }
 }
 
@@ -327,10 +360,8 @@ function <Text> cloneText <Text text> {
 
 function <int> main <> {
     testing();
-    utilTest();
-    textLeafTest();
-    textNodeTest();
-    sigTest();
+
+    generateInput(10000);
 
     return 0;
 }
@@ -338,7 +369,10 @@ function <int> main <> {
 /////////////// TESTING ////////////////////
 
 function <> testing <> {
-    
+    utilTest();
+    textLeafTest();
+    textNodeTest();
+    sigTest();
 }
 
 function <> sigTest <> {
@@ -498,9 +532,43 @@ function <> textNodeTest <> {
             assertListEq(text, expected);
         }
     }
+    function <> decomposeTest <> {
+        var children = generateText(34);
+        var textNode = nodeFromChildren(children);
+        var target = <list<BaseText>>([emptyText()]);
+        assert(|target| == 1);
+        textNode->decompose(0, 228, target, 3);
+        assert(|target| == 2);
+
+        var textLeaf1 = target[0];
+        assert(textLeaf1->isLeaf());
+        assert(textLeaf1->length == 214);
+        assert(|textLeaf1->getText()| == 32);
+        assert(textLeaf1->getLines() == 32);
+        assert(|textLeaf1->getChildren()| == 0);
+
+        var textLeaf2 = target[1];
+        assert(textLeaf2->length == 13);
+        assert(textLeaf2->getLines() == 2);
+        var text = textLeaf2->getText();
+        var expected = ["text33", "text34"];
+        assertListEq(text, expected);
+    }
+    function <> sliceStringTest <> {
+        var children = generateText(34);
+        var textNode = nodeFromChildren(children);
+        var result = textNode->sliceString(0, 228, "\n");
+        var expected = "";
+        for (var i = 1; i <= 34; i++){
+            expected = expected + "text" + <string>(i) + "\n";
+        }
+        assert (expected == result + "\n");
+    }
     ctorTest();
     leafFromChildrenTest();
     nodeFromChildrenTest();
+    decomposeTest();
+    sliceStringTest();
 }
 
 function <> assertListEq <list<string> a, list<string> b> {
@@ -526,5 +594,14 @@ function <list<TextLeaf>> generateText <int count> {
         leafList ~> TextLeaf(text);
     }
     return leafList;
+}
+
+function <> generateInput <int count> {
+    var s : stream["input.txt", @utf8, @out];
+    if(s){
+        for(var i = 1; i <= count; i++){
+            s <:: "text" + <string>(i) <:: '\n';
+        }
+    }
 }
 

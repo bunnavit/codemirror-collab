@@ -101,9 +101,13 @@ class TextLeaf extends Text {
   }
   sliceString(from, to = this.length, lineSep = "\n") {
     let result = "";
+    console.log("looping");
+    console.log("from", from);
+    console.log("to", to);
     for (let pos = 0, i = 0; pos <= to && i < this.text.length; i++) {
       let line = this.text[i],
         end = pos + line.length;
+      console.log("line", line);
       if (pos > from && i) result += lineSep;
       if (from < end && to > pos)
         result += line.slice(Math.max(0, from - pos), to - pos);
@@ -146,6 +150,14 @@ class TextNode extends Text {
   }
 
   decompose(from, to, target, open) {
+    // console.log("from", from);
+    // console.log("to", to);
+    // console.log("isInstance", target[0] instanceof TextLeaf);
+    // console.log("children", this.children);
+    // console.log("target", JSON.parse(JSON.stringify(target)));
+    // console.log("target length", target.length);
+    // console.log("open", open);
+
     for (let i = 0, pos = 0; pos <= to && i < this.children.length; i++) {
       let child = this.children[i],
         end = pos + child.length;
@@ -160,7 +172,11 @@ class TextNode extends Text {
       pos = end + 1;
     }
   }
+
   sliceString(from, to = this.length, lineSep = "\n") {
+    console.log("from", from);
+    console.log("to", to);
+    console.log("lineSep", lineSep);
     let result = "";
     for (let i = 0, pos = 0; i < this.children.length && pos <= to; i++) {
       let child = this.children[i],
@@ -170,6 +186,7 @@ class TextNode extends Text {
         result += child.sliceString(from - pos, to - pos, lineSep);
       pos = end + 1;
     }
+    console.log("result", result);
     return result;
   }
 
@@ -181,9 +198,6 @@ class TextNode extends Text {
     children,
     length = children.reduce((l, ch) => l + ch.length + 1, -1)
   ) {
-    console.log("children", children);
-    console.log("length", length);
-    console.log("lines?", children[0].lines);
     let lines = 0;
     for (let ch of children) lines += ch.lines;
     if (lines < 32 /* Tree.Branch */) {
@@ -244,7 +258,6 @@ class TextNode extends Text {
     flush();
     let output =
       chunked.length == 1 ? chunked[0] : new TextNode(chunked, length);
-    console.log("output", output);
     return output;
   }
 }
