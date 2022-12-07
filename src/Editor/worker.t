@@ -17,12 +17,6 @@ class BaseText {
         return this->getChildren();
     }
 
-    // text node methods
-    method <> flatten <list<BaseText> a> {
-        this->flatten(a);
-    }
-
-    // text leaf methods
     method <Text> getText <> {
         return this->getText();
     }
@@ -31,7 +25,7 @@ class BaseText {
         return this->isLeaf();
     }
 
-    method <> decompose <int from, int until, list<TextLeaf> target, int open> {
+    method <> decompose <int from, int until, list<BaseText> target, int open> {
         this->decompose(from, until, target, open);
     }
 
@@ -43,10 +37,18 @@ class BaseText {
         return this->sliceString(from, until, lineSep);
     }
 
-    method <> flatten <Text a> {
-        this->flatten(a);
+    method <> flatten <Text target> {
+        this->flatten(target);
     }
+}
 
+function <BaseText> makeDoc <Text text> {
+    if(|text| == 0){
+        $stderr <:: "A document must have at least one line" <:: '\n';
+    }
+    if(|text| == 1 && !text[0]) return emptyText();
+    if(|text| <= 32) return TextLeaf(text);
+    return nodeFromChildren(leafsFromText(text));
 }
 
 //////////////// TEXT LEAF //////////////////////
@@ -80,7 +82,7 @@ class TextLeaf: BaseText {
     }
 
     // open: 1 => open from, others => open to
-    method <> decompose <int from, int until, list<TextLeaf> target, int open>{
+    method <> decompose <int from, int until, list<BaseText> target, int open>{
         var newText: TextLeaf;
         if(from <= 0 && until >= this->length){
             newText = TextLeaf(text, this->length);
@@ -137,7 +139,7 @@ class TextLeaf: BaseText {
 }
 
 // convert text into multiple textLeafs
-function <list<TextLeaf>> split <Text text> {
+function <list<TextLeaf>> leafsFromText <Text text> {
     var target: list<TextLeaf>;
     var part: Text;
     var len = -1;
@@ -212,6 +214,18 @@ class TextNode: BaseText {
         }
         return result;
     }
+
+    method <string> sliceString <int from> {
+        var until = this->length;
+        var lineSep = "\n";
+        return sliceString(from, until, lineSep);
+    }
+
+    method <> flatten <Text target> {
+        for var child in children do {
+            child->flatten(target);
+        }
+    }
 }
 
 // create textNode from textNodes/textLeafs
@@ -239,6 +253,11 @@ function <BaseText> nodeFromChildren <list<BaseText> children, int length> {
 
     function <> add <BaseText child> {
         var last: BaseText;
+
+        if(|currentChunk|){
+            last = @tail currentChunk;
+        }
+
         if(child->getLines() > maxChunk && !child->isLeaf()){
             for var textNode in child->getChildren() do {
                 add(textNode);
@@ -255,16 +274,12 @@ function <BaseText> nodeFromChildren <list<BaseText> children, int length> {
             (@tail currentChunk)->isLeaf() &&
             child->getLines() + last->getLines() <= 32
         ){  
-            last = @tail currentChunk;
             currentLines += child->getLines();
             currentLen += child->length + 1;
             var text: Text = cloneText(last->getText()) ~> cloneText(child->getText());
             var len = last->length + 1 + child->length;
             @tail currentChunk = TextLeaf(text, len);
         } else {
-            if(|currentChunk|){
-                last = @tail currentChunk;
-            }
             if (currentLines + child->getLines() > chunk){
                 flush();
             }
@@ -370,6 +385,7 @@ function <int> main <> {
 
 function <> testing <> {
     utilTest();
+    baseTextTest();
     textLeafTest();
     textNodeTest();
     sigTest();
@@ -431,7 +447,7 @@ function <> utilTest <> {
     }
 
     function <> generateTextTest <> {
-        var leafs = generateText(34);
+        var leafs = generateTextLeafs(34);
         assert(|leafs| == 2);
         assert(leafs[0]->length == 214);
         assert(leafs[1]->length == 13);
@@ -444,6 +460,60 @@ function <> utilTest <> {
     textLengthTest();
     sliceTextTest();
     generateTextTest();
+}
+
+function <> baseTextTest <> {
+    function <> makeDocTest <> {
+        var text = [""];
+        var doc = makeDoc(text);
+        assert(doc->isLeaf());
+        assertListEq(doc->getText(), text);
+
+        text = generateText(3);
+        doc = makeDoc(text);
+        assert(doc->isLeaf());
+        assert(|doc->getChildren()| == 0);
+        assert(doc->getLines() == 3);
+        assert(doc->length == 17);
+        assertListEq(doc->getText(), text); 
+
+        text = generateText(34);
+        doc = makeDoc(text);
+        assert(!doc->isLeaf());
+        assert(|doc->getChildren()| == 2);
+        assert(doc->getLines() == 34);
+        assert(doc->length == 228);
+        var leaf2 = doc->getChildren()[1];
+        assert(leaf2->isLeaf());
+        var expectedText = ["text33", "text34"];
+        assertListEq(leaf2->getText(), expectedText);
+
+        text = generateText(100_000);
+        doc = makeDoc(text);
+        assert(!doc->isLeaf());
+        assert(|doc->getChildren()| == 33);
+        assert(doc->getLines() == 100_000);
+        assert(doc->length == 988894);
+
+        var firstChild = doc->getChildren()[0];
+        assert(!firstChild->isLeaf());
+        assert(|firstChild->getChildren()| == 33);
+        assert(firstChild->getLines() == 3104);
+        assert(firstChild->length == 26828);
+
+        var childOfChild = firstChild->getChildren()[0];
+        assert(!childOfChild->isLeaf());
+        assert(|childOfChild->getChildren()| == 3);
+        assert(childOfChild->getLines() == 96);
+        assert(childOfChild->length == 662);
+
+        var firstLeaf = childOfChild->getChildren()[0];
+        assert(firstLeaf->isLeaf());
+        assert(firstLeaf->getLines() == 32);
+        assert(firstLeaf->length == 214);
+        assertListEq(firstLeaf->getText(), generateText(32));
+    }
+    makeDocTest();
 }
 
 function <> textLeafTest <> {
@@ -504,7 +574,7 @@ function <> textNodeTest <> {
         assertListEq(text, expected);
     }
     function <> nodeFromChildrenTest <> {
-        var children = generateText(34);
+        var children = generateTextLeafs(34);
 
         var textNodes: list<BaseText>;
         textNodes ~> nodeFromChildren(children);
@@ -533,7 +603,7 @@ function <> textNodeTest <> {
         }
     }
     function <> decomposeTest <> {
-        var children = generateText(34);
+        var children = generateTextLeafs(34);
         var textNode = nodeFromChildren(children);
         var target = <list<BaseText>>([emptyText()]);
         assert(|target| == 1);
@@ -555,14 +625,16 @@ function <> textNodeTest <> {
         assertListEq(text, expected);
     }
     function <> sliceStringTest <> {
-        var children = generateText(34);
+        var children = generateTextLeafs(34);
         var textNode = nodeFromChildren(children);
-        var result = textNode->sliceString(0, 228, "\n");
+        var text = textNode->sliceString(0, 228, "\n");
+        var text2 = textNode->sliceString(0);
         var expected = "";
         for (var i = 1; i <= 34; i++){
             expected = expected + "text" + <string>(i) + "\n";
         }
-        assert (expected == result + "\n");
+        assert (expected == text + "\n");
+        assert (expected == text2 + "\n");
     }
     ctorTest();
     leafFromChildrenTest();
@@ -570,6 +642,8 @@ function <> textNodeTest <> {
     decomposeTest();
     sliceStringTest();
 }
+
+///////////////////// TEST UTILS ///////////////////
 
 function <> assertListEq <list<string> a, list<string> b> {
     assert (|a| == |b|);
@@ -580,7 +654,15 @@ function <> assertListEq <list<string> a, list<string> b> {
     }
 }
 
-function <list<TextLeaf>> generateText <int count> {
+function <Text> generateText <int count> {
+    var text: Text;
+    for (var i = 1; i <= count; i++){
+        text ~> ("text" + <string>(i));
+    }
+    return text;
+}
+
+function <list<TextLeaf>> generateTextLeafs <int count> {
     var leafList: list<TextLeaf>;
     var text: Text;
     for (var i = 1; i <= count; i++){
