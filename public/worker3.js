@@ -368,9 +368,14 @@ class ChangeSet {
       } else if (part.length == 1) {
         sections.push(part[0], 0);
       } else {
-        while (inserted.length < i) inserted.push(Text.empty);
+        while (inserted.length < i) {
+          console.log("while");
+          inserted.push(Text.empty);
+        }
+        console.log("out");
         inserted[i] = Text.of(part.slice(1));
         sections.push(part[0], inserted[i].length);
+        console.log("inserted", JSON.parse(JSON.stringify(inserted)));
       }
     }
     return new ChangeSet(sections, inserted);
@@ -434,11 +439,12 @@ var pending = [];
 // eslint-disable-next-line no-restricted-globals
 self.onmessage = function (event) {
   function resp(value) {
+    console.log("resp", JSON.stringify(value));
     event.ports[0].postMessage(JSON.stringify(value));
   }
   var data = JSON.parse(event.data);
 
-  console.log(data);
+  console.log("incoming", event.data);
 
   if (data.type == "pullUpdates") {
     if (data.version < updates.length) resp(updates.slice(data.version));

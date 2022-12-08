@@ -3,12 +3,23 @@ type BaseText = sig<BaseText>;
 type TextLeaf = sig<TextLeaf>;
 type TextNode = sig<TextNode>;
 type ChangeSet = sig<ChangeSet>;
-type JSONChange = 
-<
-    int I,
-    string S,
-    list<JSONChange> L
->;
+
+type Request = 
+  <
+    string Type,
+    int version,
+    Updates updates
+  >;
+type Updates = 
+    list<
+        string clientID,
+        Changes changes
+    >;
+type Changes = list<
+        string $type,
+        int i, 
+        list<string $type, int i, string s> l
+    >;
 
 class BaseText {
     method length: int;
@@ -378,12 +389,41 @@ class ChangeSet {
     }
 }
 
-function <ChangeSet> changeSetFromJSON <list<JSONChange> json> {
+function <ChangeSet> changeSetFromJSON <Changes json> {
     var sections: list<int>;
     var inserted: list<BaseText>;
+    var i = 0;
     for(var iter = @fwd json; iter; iter++){
-        
+        var part = @elt iter;
+        var changes = part.l;
+        // untouched
+        if(part.$type == "i"){
+            sections ~> part.i ~> -1;
+        // deletion
+        } else if (part.$type == "l" && |changes| == 1){
+            // TODO: should probably check if this is actually an int
+            sections ~> changes[0].i ~> 0;
+        // inserts/replace
+        } else if(part.$type == "l") {
+            while (|inserted| < i) inserted ~> emptyText();
+            var text: Text;
+            for(var iter = @fwd changes; iter; iter++){
+                var str = @elt iter;
+                if(str != @head changes){
+                    // TODO: should check if string
+                    text ~> str.s;
+                }
+            }
+            // ERR?: different
+            inserted ~> makeDoc(text);
+            // TODO: should check if int
+            sections ~> changes[0].i ~> (@tail inserted)->length;
+        } else {
+            $stderr <:: "Error: Invalid representation of change set" <:: '\n';
+        }
+        i++;
     }
+    return ChangeSet(sections, inserted);
 }
 
 ////////////////// UTILITIES /////////////////
@@ -425,7 +465,7 @@ function <Text> appendText <Text text, Text target, int from, int until>{
         i++;
     }
     return target;
-}
+} 
 
 function <Text> sliceText <Text text, int from, int until> {
     return appendText(text, [""], from, until);
@@ -450,11 +490,57 @@ function <int> main <> {
 /////////////// TESTING ////////////////////
 
 function <> testing <> {
+    sigTest();
     utilTest();
     baseTextTest();
     textLeafTest();
     textNodeTest();
-    sigTest();
+    changeSetTest();
+}
+
+function <> changeSetTest <> {
+    // delete 23 characters from start of document
+    function <> changeSetFromJSONTestDelete <> {
+        var test = "[[23], 208]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [ 23, 0, 208, -1];
+        assertListEq(expectedSections, changeSet->sections);
+        assert(|changeSet->inserted| == 0);
+    }
+    // insert multiple lines at start of document
+    function <> changeSetFromJSONTestInsert1 <> {
+        var test = "[[0, \"text1\", \"text2\", \"text3\", \"text4\"], 228]";
+        var changes = <Changes> <:j: <stream>(test);
+        $stdout <:: |changes| <:: '\n';
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [0, 23, 228, -1];
+        $stdout <:j: changeSet->sections <:: '\n';
+        assertListEq(expectedSections, changeSet->sections);
+    }
+    // insert "a" in three places at the same time
+    function <> changeSetFromJSONTestInsert2 <> {
+        var test = "[74, [0, \"a\"], 28, [0, \"a\"], 28, [0, \"a\"], 98]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [74, -1, 0, 1, 28, -1, 0, 1, 28, -1, 0, 1, 98, -1];
+        assertListEq(expectedSections, changeSet->sections);
+        assert(|changeSet->inserted| == 6);
+        var i = 0;
+        for var leaf in changeSet->inserted do {
+            if(i%2 == 0){
+                assert(leaf->length == 0);
+                assert(leaf->getText()[0] == "");
+            } else {
+                assert(leaf->length == 1);
+                assert(leaf->getText()[0] == "a");
+            }
+            i++;
+        }
+    }
+    changeSetFromJSONTestDelete();
+    changeSetFromJSONTestInsert1();
+    changeSetFromJSONTestInsert2();
 }
 
 function <> sigTest <> {
@@ -712,6 +798,15 @@ function <> textNodeTest <> {
 ///////////////////// TEST UTILS ///////////////////
 
 function <> assertListEq <list<string> a, list<string> b> {
+    assert (|a| == |b|);
+    var bIter = @fwd b;
+    for (var aIter = @fwd a; aIter; aIter ++){
+        assert(@elt aIter == @elt bIter);
+        bIter++;
+    }
+}
+
+function <> assertListEq <list<int> a, list<int> b> {
     assert (|a| == |b|);
     var bIter = @fwd b;
     for (var aIter = @fwd a; aIter; aIter ++){

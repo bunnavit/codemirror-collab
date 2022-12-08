@@ -1,30 +1,12 @@
-class A
-{
-  method x : int;
-  ctor <int a> x(a) {}
-}
-
-class B : A
-{
-  // method x : int; // causes an override error
-  ctor <int a> A(a) {
-    this->x = 5;
-  }
-}
-
-class C : A
-{
-    ctor <int b> A(b){
-        this->x = 10;
-    }
-    method <> something <> {}
-}
+type T = <int a, string b>;
 
 function <int> main <>
 {
-  var b = B(2);
-  assert b->x == 5;
-  var something = <bool>(<sig<C>>(b));
-  $stdout <:: something <:: '\n';
+  var binout : stream[@bin];
+  binout <:: "{ \"a\": 17, \"b\": \"yes\" }";
+  var binvec = <vector<uint8>>(binout);
+  var binin : stream[binvec];
+  var x = <T> <:j: binin;
+  $stdout <:j: x;
   return 0;
 }
