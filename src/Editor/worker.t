@@ -57,21 +57,23 @@ class BaseText {
     }
 
     // Replace a range of the text with the given content
-    method <BaseText> replace <int from, int until, list<BaseText> text> {
+    method <BaseText> replace <int from, int until, BaseText text> {
         var parts: list<BaseText>;
+        var i = 0;
         // open to
         this->decompose(0, from, parts, 2);
-        if(|text|){
+        if(text->length){
             // open from, open to
-            this->decompose(0, |text|, parts, 1 | 2);
+            text->decompose(0, text->length, parts, 1 | 2);
         }
         // open from
         this->decompose(until, this->length, parts, 1);
-        return nodeFromChildren(parts, this->length - (until - from) + |text|);
+        // test
+        return nodeFromChildren(parts, this->length - (until - from) + text->length);
     }
 
     // Append another document to this one
-    method <BaseText> append <list<BaseText> other> {
+    method <BaseText> append <BaseText other> {
         return replace(this->length, this->length, other);
     }
 
@@ -132,7 +134,7 @@ class TextLeaf: BaseText {
     method <> decompose <int from, int until, list<BaseText> target, int open>{
         var newText: TextLeaf;
         if(from <= 0 && until >= this->length){
-            newText = TextLeaf(text, this->length);
+            newText = this;
         } else {
             newText = TextLeaf(
                 sliceText(text, from, until),
@@ -374,9 +376,20 @@ function <BaseText> nodeFromChildren <list<BaseText> children> {
 ////////////////// CHANGE SET ////////////////
 
 class ChangeSet {
-    method sections: list<int>;
-    method inserted: list<BaseText>; 
-    ctor <list<int> s, list<BaseText> i> sections(s), inserted(i) {}
+    method sections: vector<int>;
+    method inserted: vector<BaseText>; 
+    ctor <list<int> s, list<BaseText> l> sections(<vector<int>>(|s|)), inserted(<vector<BaseText>>(|l|)) {
+        var iSections = @fwd s;
+        var iInserted = @fwd l;
+        for (var i = 0; i < |s|; i++){
+            sections[i] = @elt iSections;
+            iSections++;
+        }
+        for (var i = 0; i < |l|; i++){
+            inserted[i] = @elt iInserted;
+            iInserted++;
+        }
+    }
 
     // The length of the document before the change
     method <int> getLength <> {
@@ -386,6 +399,46 @@ class ChangeSet {
             iter++;
         }
         return result;
+    }
+
+    // Apply the changes to a document, returning the modified document
+    method <BaseText> apply <BaseText doc> {
+        if(doc->length != getLength()){
+            $stderr <:: "Applying change set to a document with the wrong length" <:: '\n';
+        }
+        var posA = 0;
+        var posB = 0;
+        for (var i = 0; i < |sections|;){
+            var len = sections[i];
+            i++;
+            var ins = sections[i];
+            i++;
+            if(ins < 0){
+                posA += len;
+                posB += len;
+            } else {
+                var endA = posA;
+                var endB = posB;
+                var text = emptyText();
+                for (;;) {
+                    endA += len;
+                    endB += ins;
+                    if(ins && inserted){
+                        text = text->append(inserted[(i-2) ~> 1]);
+                    }
+                    if(i == |sections| || sections[i + 1] < 0) break;
+                    len = sections[i];
+                    i++;
+                    ins = sections[i];
+                    i++;
+                }
+                doc = doc->replace(posB, posB + (endA - posA), text);
+
+                posA = endA;
+                posB = endB;
+            }
+        }
+        return doc;
     }
 }
 
@@ -425,6 +478,7 @@ function <ChangeSet> changeSetFromJSON <Changes json> {
     }
     return ChangeSet(sections, inserted);
 }
+
 
 ////////////////// UTILITIES /////////////////
 
@@ -505,26 +559,44 @@ function <> changeSetTest <> {
         var changes = <Changes> <:j: <stream>(test);
         var changeSet = changeSetFromJSON(changes);
         var expectedSections = [ 23, 0, 208, -1];
-        assertListEq(expectedSections, changeSet->sections);
+        assertListEq(expectedSections, vecToList(changeSet->sections));
         assert(|changeSet->inserted| == 0);
     }
     // insert multiple lines at start of document
     function <> changeSetFromJSONTestInsert1 <> {
         var test = "[[0, \"text1\", \"text2\", \"text3\", \"text4\"], 228]";
         var changes = <Changes> <:j: <stream>(test);
-        $stdout <:: |changes| <:: '\n';
         var changeSet = changeSetFromJSON(changes);
         var expectedSections = [0, 23, 228, -1];
-        $stdout <:j: changeSet->sections <:: '\n';
-        assertListEq(expectedSections, changeSet->sections);
+        assertListEq(expectedSections, vecToList(changeSet->sections));
+        var inserted = changeSet->inserted;
+        assert(|inserted| == 1);
+        var leaf: TextLeaf = inserted[0];
+        assert(leaf->length == 23);
+        assert(leaf->getLines() == 4);
+        assertListEq(leaf->getText(), generateText(4));
     }
-    // insert "a" in three places at the same time
+    // insert multiple lines at the end of document
     function <> changeSetFromJSONTestInsert2 <> {
+        var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [228, -1, 0, 24];
+        assertListEq(expectedSections, vecToList(changeSet->sections));
+        var inserted = changeSet->inserted;
+        assert(|inserted| == 2);
+        var emptyLeaf: TextLeaf = inserted[0];
+        assertListEq(emptyLeaf->getText(), [""]);
+        var leaf: TextLeaf = inserted[1];
+        assertListEq(leaf->getText(), [""] ~> generateText(4));
+    }   
+    // insert "a" in three places at the same time
+    function <> changeSetFromJSONTestInsert3 <> {
         var test = "[74, [0, \"a\"], 28, [0, \"a\"], 28, [0, \"a\"], 98]";
         var changes = <Changes> <:j: <stream>(test);
         var changeSet = changeSetFromJSON(changes);
         var expectedSections = [74, -1, 0, 1, 28, -1, 0, 1, 28, -1, 0, 1, 98, -1];
-        assertListEq(expectedSections, changeSet->sections);
+        assertListEq(expectedSections, vecToList(changeSet->sections));
         assert(|changeSet->inserted| == 6);
         var i = 0;
         for var leaf in changeSet->inserted do {
@@ -538,9 +610,57 @@ function <> changeSetTest <> {
             i++;
         }
     }
+    // replace section with chunk of text
+    function <> changeSetFromJSONTestReplace <> {
+        // TODO should make a func that generates text input
+    }
+    // delete 26 lines at the start of document
+    function <> changeSetTestApply1 <> {
+        var doc = makeDoc(generateText(40));
+        var test = "[[26], 244]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        var children = doc->getChildren();
+        assert(|children| == 2);
+        var expectedText1 = generateText(32);
+        for (var i = 0; i < 5; i++) @pop expectedText1;
+        expectedText1 = ["xt5"] ~> expectedText1;
+        assertListEq(expectedText1, children[0]->getText());
+    }
+    // delete lines and convert from node to leaf when small enough
+    function <> changeSetTestApply2 <> {
+        var doc = makeDoc(generateText(34));
+        assert(!doc->isLeaf());
+        var test = "[[26], 202]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        assert(doc->isLeaf());
+        var expectedText = generateText(34);
+        for (var i = 0; i < 5; i++) @pop expectedText;
+        expectedText = ["xt5"] ~> expectedText;
+        assertListEq(expectedText, doc->getText());
+    }
+    // insert and apply multiple lines at the end of doc
+    function <> changeSetTestApply3 <> {
+        var doc = makeDoc(generateText(34));
+        var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        assert(|doc->getChildren()| == 2);
+        assertListEq(doc->getChildren()[0]->getText(), generateText(32));
+        assertListEq(doc->getChildren()[1]->getText(), ["text33", "text34"] ~> generateText(4));
+    }
     changeSetFromJSONTestDelete();
     changeSetFromJSONTestInsert1();
     changeSetFromJSONTestInsert2();
+    changeSetFromJSONTestInsert3();
+    changeSetFromJSONTestReplace();
+    changeSetTestApply1();
+    changeSetTestApply2();
+    changeSetTestApply3();
 }
 
 function <> sigTest <> {
@@ -797,6 +917,22 @@ function <> textNodeTest <> {
 
 ///////////////////// TEST UTILS ///////////////////
 
+function <list<string>> vecToList <vector<string> a> {
+    var l: list<string>;
+    for var x in a do {
+        l ~> x;
+    }
+    return l;
+}
+
+function <list<int>> vecToList <vector<int> a> {
+    var l: list<int>;
+    for var x in a do {
+        l ~> x;
+    }
+    return l;
+}
+
 function <> assertListEq <list<string> a, list<string> b> {
     assert (|a| == |b|);
     var bIter = @fwd b;
@@ -816,8 +952,12 @@ function <> assertListEq <list<int> a, list<int> b> {
 }
 
 function <Text> generateText <int count> {
+    return generateText(1, count);
+}
+
+function <Text> generateText <int from, int until> {
     var text: Text;
-    for (var i = 1; i <= count; i++){
+    for (var i = from; i <= until; i++){
         text ~> ("text" + <string>(i));
     }
     return text;

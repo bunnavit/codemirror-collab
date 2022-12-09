@@ -12,13 +12,14 @@ class Text {
   replace(from, to, text) {
     let parts = [];
     this.decompose(0, from, parts, 2 /* Open.To */);
-    if (text.length)
+    if (text.length) {
       text.decompose(
         0,
         text.length,
         parts,
         1 /* Open.From */ | 2 /* Open.To */
       );
+    }
     this.decompose(to, this.length, parts, 1 /* Open.From */);
     return TextNode.from(parts, this.length - (to - from) + text.length);
   }
@@ -26,10 +27,7 @@ class Text {
     Append another document to this one.
     */
   append(other) {
-    console.log("other", JSON.parse(JSON.stringify(other)));
-    console.log(other instanceof TextNode);
     const output = this.replace(this.length, this.length, other);
-    console.log("output", output);
     return output;
   }
 
@@ -80,13 +78,16 @@ class TextLeaf extends Text {
   }
 
   decompose(from, to, target, open) {
-    let text =
-      from <= 0 && to >= this.length
-        ? this
-        : new TextLeaf(
-            sliceText(this.text, from, to),
-            Math.min(to, this.length) - Math.max(0, from)
-          );
+    let text;
+    if (from <= 0 && to >= this.length) {
+      text = this;
+    } else {
+      text = new TextLeaf(
+        sliceText(this.text, from, to),
+        Math.min(to, this.length) - Math.max(0, from)
+      );
+    }
+
     if (open & 1 /* Open.From */) {
       let prev = target.pop();
       let joined = appendText(text.text, prev.text.slice(), 0, text.length);
@@ -369,13 +370,10 @@ class ChangeSet {
         sections.push(part[0], 0);
       } else {
         while (inserted.length < i) {
-          console.log("while");
           inserted.push(Text.empty);
         }
-        console.log("out");
         inserted[i] = Text.of(part.slice(1));
         sections.push(part[0], inserted[i].length);
-        console.log("inserted", JSON.parse(JSON.stringify(inserted)));
       }
     }
     return new ChangeSet(sections, inserted);
@@ -399,7 +397,9 @@ const iterChanges = (desc, f, individual) => {
       for (;;) {
         endA += len;
         endB += ins;
-        if (ins && inserted) text = text.append(inserted[(i - 2) >> 1]);
+        if (ins && inserted) {
+          text = text.append(inserted[(i - 2) >> 1]);
+        }
         if (individual || i == desc.sections.length || desc.sections[i + 1] < 0)
           break;
         len = desc.sections[i++];
