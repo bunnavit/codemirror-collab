@@ -533,6 +533,8 @@ function <Text> cloneText <Text text> {
     return newText;
 }
 
+//////////////// MAIN //////////////////////
+
 function <int> main <> {
     testing();
 
@@ -550,132 +552,6 @@ function <> testing <> {
     textLeafTest();
     textNodeTest();
     changeSetTest();
-}
-
-function <> changeSetTest <> {
-    // delete 23 characters from start of document
-    function <> changeSetFromJSONTestDelete <> {
-        var test = "[[23], 208]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        var expectedSections = [ 23, 0, 208, -1];
-        assertListEq(expectedSections, vecToList(changeSet->sections));
-        assert(|changeSet->inserted| == 0);
-    }
-    // insert multiple lines at start of document
-    function <> changeSetFromJSONTestInsert1 <> {
-        var test = "[[0, \"text1\", \"text2\", \"text3\", \"text4\"], 228]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        var expectedSections = [0, 23, 228, -1];
-        assertListEq(expectedSections, vecToList(changeSet->sections));
-        var inserted = changeSet->inserted;
-        assert(|inserted| == 1);
-        var leaf: TextLeaf = inserted[0];
-        assert(leaf->length == 23);
-        assert(leaf->getLines() == 4);
-        assertListEq(leaf->getText(), generateText(4));
-    }
-    // insert multiple lines at the end of document
-    function <> changeSetFromJSONTestInsert2 <> {
-        var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        var expectedSections = [228, -1, 0, 24];
-        assertListEq(expectedSections, vecToList(changeSet->sections));
-        var inserted = changeSet->inserted;
-        assert(|inserted| == 2);
-        var emptyLeaf: TextLeaf = inserted[0];
-        assertListEq(emptyLeaf->getText(), [""]);
-        var leaf: TextLeaf = inserted[1];
-        assertListEq(leaf->getText(), [""] ~> generateText(4));
-    }   
-    // insert "a" in three places at the same time
-    function <> changeSetFromJSONTestInsert3 <> {
-        var test = "[74, [0, \"a\"], 28, [0, \"a\"], 28, [0, \"a\"], 98]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        var expectedSections = [74, -1, 0, 1, 28, -1, 0, 1, 28, -1, 0, 1, 98, -1];
-        assertListEq(expectedSections, vecToList(changeSet->sections));
-        assert(|changeSet->inserted| == 6);
-        var i = 0;
-        for var leaf in changeSet->inserted do {
-            if(i%2 == 0){
-                assert(leaf->length == 0);
-                assert(leaf->getText()[0] == "");
-            } else {
-                assert(leaf->length == 1);
-                assert(leaf->getText()[0] == "a");
-            }
-            i++;
-        }
-    }
-    // replace section with chunk of text
-    function <> changeSetFromJSONTestReplace <> {
-        // TODO should make a func that generates text input
-    }
-    // delete 26 lines at the start of document
-    function <> changeSetTestApply1 <> {
-        var doc = makeDoc(generateText(40));
-        var test = "[[26], 244]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        doc = changeSet->apply(doc);
-        var children = doc->getChildren();
-        assert(|children| == 2);
-        var expectedText1 = generateText(32);
-        for (var i = 0; i < 5; i++) @pop expectedText1;
-        expectedText1 = ["xt5"] ~> expectedText1;
-        assertListEq(expectedText1, children[0]->getText());
-    }
-    // delete lines and convert from node to leaf when small enough
-    function <> changeSetTestApply2 <> {
-        var doc = makeDoc(generateText(34));
-        assert(!doc->isLeaf());
-        var test = "[[26], 202]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        doc = changeSet->apply(doc);
-        assert(doc->isLeaf());
-        var expectedText = generateText(34);
-        for (var i = 0; i < 5; i++) @pop expectedText;
-        expectedText = ["xt5"] ~> expectedText;
-        assertListEq(expectedText, doc->getText());
-    }
-    // insert and apply multiple lines at the end of doc
-    function <> changeSetTestApply3 <> {
-        var doc = makeDoc(generateText(34));
-        var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        doc = changeSet->apply(doc);
-        assert(|doc->getChildren()| == 2);
-        assertListEq(doc->getChildren()[0]->getText(), generateText(32));
-        assertListEq(doc->getChildren()[1]->getText(), ["text33", "text34"] ~> generateText(4));
-    }
-    // replacement of text
-    function <> changeSetTestApply4 <> {
-        var doc = makeDoc(generateText(34));
-        var test = "[89, [34, \"text20\", \"text21\", \"text22\", \"text23\"], 105]";
-        var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
-        doc = changeSet->apply(doc);
-        assert(|doc->getChildren()| == 2);
-        var leaf1 = doc->getChildren()[0];
-        var expectedText = generateText(14) ~> generateText(20, 23) ~> generateText(20, 32);
-        assertListEq(leaf1->getText(), expectedText);
-        var leaf2 = doc->getChildren()[1];
-        assertListEq(leaf2->getText(), generateText(33, 34));
-    }
-    changeSetFromJSONTestDelete();
-    changeSetFromJSONTestInsert1();
-    changeSetFromJSONTestInsert2();
-    changeSetFromJSONTestInsert3();
-    changeSetFromJSONTestReplace();
-    changeSetTestApply1();
-    changeSetTestApply2();
-    changeSetTestApply3();
-    changeSetTestApply4();
 }
 
 function <> sigTest <> {
@@ -928,6 +804,132 @@ function <> textNodeTest <> {
     nodeFromChildrenTest();
     decomposeTest();
     sliceStringTest();
+}
+
+function <> changeSetTest <> {
+    // delete 23 characters from start of document
+    function <> changeSetFromJSONTestDelete <> {
+        var test = "[[23], 208]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [ 23, 0, 208, -1];
+        assertListEq(expectedSections, vecToList(changeSet->sections));
+        assert(|changeSet->inserted| == 0);
+    }
+    // insert multiple lines at start of document
+    function <> changeSetFromJSONTestInsert1 <> {
+        var test = "[[0, \"text1\", \"text2\", \"text3\", \"text4\"], 228]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [0, 23, 228, -1];
+        assertListEq(expectedSections, vecToList(changeSet->sections));
+        var inserted = changeSet->inserted;
+        assert(|inserted| == 1);
+        var leaf: TextLeaf = inserted[0];
+        assert(leaf->length == 23);
+        assert(leaf->getLines() == 4);
+        assertListEq(leaf->getText(), generateText(4));
+    }
+    // insert multiple lines at the end of document
+    function <> changeSetFromJSONTestInsert2 <> {
+        var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [228, -1, 0, 24];
+        assertListEq(expectedSections, vecToList(changeSet->sections));
+        var inserted = changeSet->inserted;
+        assert(|inserted| == 2);
+        var emptyLeaf: TextLeaf = inserted[0];
+        assertListEq(emptyLeaf->getText(), [""]);
+        var leaf: TextLeaf = inserted[1];
+        assertListEq(leaf->getText(), [""] ~> generateText(4));
+    }   
+    // insert "a" in three places at the same time
+    function <> changeSetFromJSONTestInsert3 <> {
+        var test = "[74, [0, \"a\"], 28, [0, \"a\"], 28, [0, \"a\"], 98]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        var expectedSections = [74, -1, 0, 1, 28, -1, 0, 1, 28, -1, 0, 1, 98, -1];
+        assertListEq(expectedSections, vecToList(changeSet->sections));
+        assert(|changeSet->inserted| == 6);
+        var i = 0;
+        for var leaf in changeSet->inserted do {
+            if(i%2 == 0){
+                assert(leaf->length == 0);
+                assert(leaf->getText()[0] == "");
+            } else {
+                assert(leaf->length == 1);
+                assert(leaf->getText()[0] == "a");
+            }
+            i++;
+        }
+    }
+    // replace section with chunk of text
+    function <> changeSetFromJSONTestReplace <> {
+        // TODO should make a func that generates text input
+    }
+    // delete 26 lines at the start of document
+    function <> changeSetTestApply1 <> {
+        var doc = makeDoc(generateText(40));
+        var test = "[[26], 244]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        var children = doc->getChildren();
+        assert(|children| == 2);
+        var expectedText1 = generateText(32);
+        for (var i = 0; i < 5; i++) @pop expectedText1;
+        expectedText1 = ["xt5"] ~> expectedText1;
+        assertListEq(expectedText1, children[0]->getText());
+    }
+    // delete lines and convert from node to leaf when small enough
+    function <> changeSetTestApply2 <> {
+        var doc = makeDoc(generateText(34));
+        assert(!doc->isLeaf());
+        var test = "[[26], 202]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        assert(doc->isLeaf());
+        var expectedText = generateText(34);
+        for (var i = 0; i < 5; i++) @pop expectedText;
+        expectedText = ["xt5"] ~> expectedText;
+        assertListEq(expectedText, doc->getText());
+    }
+    // insert and apply multiple lines at the end of doc
+    function <> changeSetTestApply3 <> {
+        var doc = makeDoc(generateText(34));
+        var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        assert(|doc->getChildren()| == 2);
+        assertListEq(doc->getChildren()[0]->getText(), generateText(32));
+        assertListEq(doc->getChildren()[1]->getText(), ["text33", "text34"] ~> generateText(4));
+    }
+    // replacement of text
+    function <> changeSetTestApply4 <> {
+        var doc = makeDoc(generateText(34));
+        var test = "[89, [34, \"text20\", \"text21\", \"text22\", \"text23\"], 105]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        assert(|doc->getChildren()| == 2);
+        var leaf1 = doc->getChildren()[0];
+        var expectedText = generateText(14) ~> generateText(20, 23) ~> generateText(20, 32);
+        assertListEq(leaf1->getText(), expectedText);
+        var leaf2 = doc->getChildren()[1];
+        assertListEq(leaf2->getText(), generateText(33, 34));
+    }
+    changeSetFromJSONTestDelete();
+    changeSetFromJSONTestInsert1();
+    changeSetFromJSONTestInsert2();
+    changeSetFromJSONTestInsert3();
+    changeSetFromJSONTestReplace();
+    changeSetTestApply1();
+    changeSetTestApply2();
+    changeSetTestApply3();
+    changeSetTestApply4();
 }
 
 ///////////////////// TEST UTILS ///////////////////
