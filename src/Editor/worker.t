@@ -653,6 +653,20 @@ function <> changeSetTest <> {
         assertListEq(doc->getChildren()[0]->getText(), generateText(32));
         assertListEq(doc->getChildren()[1]->getText(), ["text33", "text34"] ~> generateText(4));
     }
+    // replacement of text
+    function <> changeSetTestApply4 <> {
+        var doc = makeDoc(generateText(34));
+        var test = "[89, [34, \"text20\", \"text21\", \"text22\", \"text23\"], 105]";
+        var changes = <Changes> <:j: <stream>(test);
+        var changeSet = changeSetFromJSON(changes);
+        doc = changeSet->apply(doc);
+        assert(|doc->getChildren()| == 2);
+        var leaf1 = doc->getChildren()[0];
+        var expectedText = generateText(14) ~> generateText(20, 23) ~> generateText(20, 32);
+        assertListEq(leaf1->getText(), expectedText);
+        var leaf2 = doc->getChildren()[1];
+        assertListEq(leaf2->getText(), generateText(33, 34));
+    }
     changeSetFromJSONTestDelete();
     changeSetFromJSONTestInsert1();
     changeSetFromJSONTestInsert2();
@@ -661,6 +675,7 @@ function <> changeSetTest <> {
     changeSetTestApply1();
     changeSetTestApply2();
     changeSetTestApply3();
+    changeSetTestApply4();
 }
 
 function <> sigTest <> {
