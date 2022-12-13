@@ -1,64 +1,43 @@
-type JSONValue =
-<
-    string $type,
-    double D,
-    bool B,
-    string S,
-    list<JSONValue> L,
-    map<string>to<JSONValue> M
->;
+import Utility;
 
-
-type JSONObject = map<string>to<JSONValue>;
-
-type JSONList = list<JSONValue>;
-type JSONValue2 = <string $type, int a, list<string $type, int c, string d> b>;
-type JSONList2 = list<JSONValue2>;
-
-type Request = 
-  <
-    string Type,
-    int version,
-    Updates updates
-  >;
-
-type Changes = list<string $type, int i, list<string $type, int i, string s> l>;
-
-type Updates = 
-  list<
-    string clientID,
-    Changes changes
-  >;
-
-function <int> main <>
+entry <int> main <> // new
 {
-    var a = “{"foo": ["bar", "baz"]}”;
-    var b = “{"foo": ["hello", "world"]}”;
-    var x = <JSONObject> <:j: <stream>(a);
-    var y = <JSONObject> <:j: <stream>(b);
-    $stderr <:k: @join(x, y) <:: '\n';
+   var $W0 : wire<int>[32];
+   var $W1 : wire<int>[3];
+   // once [-2]
+   (out $W1) <:: <int>(5);
+   // $count$FOT2XdYd [-1]
+   node $count(trigger in $W1, trigger out $W0);
+   // log [-5]
+   node $log_d(trigger in $W0, @unused trigger out <int>);
+   // once [-3]
+   (out $W1) <:: <int>(0);
+   // once [-4]
+   (out $W1) <:: <int>(3);
 
-    var c = "[1, [\"test\", 3], 3]";
-    var z = <JSONList2> <:j: <stream>(c);
-    $stdout <:j: z[1].$type <:: '\n';
-
-    for var item in z do {
-      if(item.$type == "a"){
-        $stdout <:: "is int" <:: '\n';
-      }
-      if(item.$type == "b"){
-        var test = item.b;
-        for var subTest in test do {
-          $stdout <:: subTest.$type <:: '\n';
-        }
-      }
+  $stdout <:: "starting loop" <:: '\n';
+   for (var i = 0; i < 5; i++){
+    (out $W1) <:: <int>(1);
     }
+   fork $numcores();
+   return 0;
+}
 
+node $log_d
+{
+   var input : trigger in<int>;
+   var ack : trigger out<int>;
+   var comp, circ, capt : string;
+   var key : int;
+   export ctor <trigger in<int> input, trigger out<int> ack> : input(input), ack(ack) {}
+   fire {
+      var value = <:: input;
+      $stderr <:: value <:: '\n';
+      if (! @unused ack) ack <:: value;
+      return 1;
+   }
+}
 
-    var testInput = "{\"Type\":\"pushUpdates\",\"version\":5,\"updates\":[{\"clientID\":\"19xqfh\",\"changes\":[61,[0,\"\",\"text18\",\"text19\",\"text20\"],114]}]}";
-    
-    var request = <Request> <:j: <stream>(testInput);
-    $stdout <:J: request <:: '\n';
+node Doc {
   
-    return 0;
 }

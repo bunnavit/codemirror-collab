@@ -4,15 +4,35 @@ type TextLeaf = sig<TextLeaf>;
 type TextNode = sig<TextNode>;
 type ChangeSet = sig<ChangeSet>;
 
-type Request = 
+type ChangeSetReturn = 
+<
+    ChangeSet value,
+    string error
+>;
+
+type Create = 
+<
+    Text doc,
+    string connectionID,
+    string docID
+>;
+
+type Get =
+<
+    string connectionID,
+    string docID,
+    int version
+>;
+
+type Push = 
   <
-    string Type,
     int version,
+    string docID,
     Updates updates
   >;
 type Updates = 
     list<
-        string clientID,
+        string connectionID,
         Changes changes
     >;
 type Changes = list<
@@ -20,6 +40,21 @@ type Changes = list<
         int i, 
         list<string $type, int i, string s> l
     >;
+type DocUpdate = 
+<
+    string connectionID,
+    ChangeSet changes
+>;
+
+type Request = 
+<
+    string reqType,
+    Text doc,
+    string connectionID,
+    string docID,
+    int version,
+    Updates updates
+>;
 
 class BaseText {
     method length: int;
@@ -446,36 +481,48 @@ function <ChangeSet> changeSetFromJSON <Changes json> {
     var sections: list<int>;
     var inserted: list<BaseText>;
     var i = 0;
-    for(var iter = @fwd json; iter; iter++){
+    var error: string;
+    var changeSetReturn: ChangeSetReturn;
+    START: for(var iter = @fwd json; iter; iter++){
         var part = @elt iter;
         var changes = part.l;
         // untouched
         if(part.$type == "i"){
             sections ~> part.i ~> -1;
         // deletion
-        } else if (part.$type == "l" && |changes| == 1){
-            // TODO: should probably check if this is actually an int
+        } else if (part.$type == "l" && |changes| == 1 && changes[0].i){
             sections ~> changes[0].i ~> 0;
         // inserts/replace
         } else if(part.$type == "l") {
             while (|inserted| < i) inserted ~> emptyText();
             var text: Text;
+            var skipHead = true;
             for(var iter = @fwd changes; iter; iter++){
                 var str = @elt iter;
-                if(str != @head changes){
-                    // TODO: should check if string
-                    text ~> str.s;
+                if(skipHead){
+                    skipHead = false;
+                    continue;
                 }
+                if(!(str.s || str.s == "")){
+                    error = "Invalid changes form";
+                    break START;
+                }
+                text ~> str.s;
             }
             // ERR?: different
             inserted ~> makeDoc(text);
-            // TODO: should check if int
+            if(!(changes[0].i || changes[0].i == 0)){
+                error = "Invalid changes form";
+                break START;
+            }
             sections ~> changes[0].i ~> (@tail inserted)->length;
         } else {
-            $stderr <:: "Error: Invalid representation of change set" <:: '\n';
+            error = "Invalid changes form";
+            break START;
         }
         i++;
     }
+    if(error) return ChangeSet(<list<int>>(), <list<BaseText>>());
     return ChangeSet(sections, inserted);
 }
 
@@ -535,13 +582,128 @@ function <Text> cloneText <Text text> {
 
 //////////////// MAIN //////////////////////
 
-function <int> main <> {
+entry <int> main <> {
     testing();
 
     // generateInput(10000);
+    
+    // node testing
+    var $W0: wire<Response>[32];
+    var $B0: wire<Broadcast>[32];
+    var $W1: wire<string>[3];
+    // create test
+    (out $W1) <:: "{\"reqType\": \"create\", \"doc\" : [\"text1\", \"text2\", \"text3\"],\"connectionID\": \"bob\",\"docID\": \"doc1\"}";
 
+    // get test
+    (out $W1) <:: "{reqType: \"get\", connectionID: \"bob\", docID: \"doc1\"}";
+
+    // push test
+    (out $W1) <:: "{reqType: \"push\", version: 0, docID: \"doc1\", updates: [{\"connectionID\": \"bob\", changes: [17, [0, \"\", \"text4\"]]}]}";
+
+    // invalid test
+    (out $W1) <:: "{test: \"test\"}";
+    
+    node Doc(trigger in $W1, trigger out $W0, trigger out $B0);
+    node LogResp(trigger in $W0);
+    node LogB(trigger in $B0);
+
+    fork $numcores();
     return 0;
 }
+
+/////////////// NODE /////////////////////
+
+type Response =
+<
+    string connectionID,
+    string docID,
+    string reqType,
+    int statusCode,
+    string message
+>;
+
+type Broadcast = 
+<
+    string docID,
+    string message
+>;
+
+node Doc
+{
+  var s : trigger in<string>;
+  var b: trigger out<Broadcast>;
+  var resT: trigger out<Response>;
+  var res: Response;
+  var req : Request;
+  var doc: BaseText;
+  var updates: list<DocUpdate>;
+  #meta menu "Utility/Regex"
+  export ctor <trigger in<string> subject, trigger out<Response> response, trigger out<Broadcast> broadcast> : s(subject), resT(response), b(broadcast) {}
+  fire { 
+    req = <Request> <:j: <stream>(<::s);
+    res.connectionID = req.connectionID;
+    res.docID = req.docID;
+    res.reqType = req.reqType;
+    // creation
+    if(req.reqType == "create" && req.doc && req.connectionID && req.docID){
+        doc = makeDoc(req.doc);
+        res.statusCode = 200;
+        res.message = "Created document";
+    } else if (req.reqType == "push" && (req.version || req.version == 0) && req.docID && req.updates){
+        if(req.version != |updates|){
+            res.statusCode = 409;
+            res.message = "Incorrect document version";
+        } else {
+            for var update in req.updates do {
+                var changeSet = changeSetFromJSON(update.changes);
+                var docUpdate: DocUpdate = {"changes": changeSet, "connectionID": update.connectionID};
+                // TODO: revisit this (prob not the best way to do this)
+                res.connectionID = update.connectionID;
+                updates ~> docUpdate;
+                changeSet->apply(doc);
+            }
+            res.statusCode = 200;
+            res.message = "Changes pushed";
+            var bMessage: Broadcast = {
+                "docID": req.docID, 
+                "message": <string>(<stream[@utf8]>() <:j: req.updates)
+            };
+            b <:: bMessage;
+        }
+    } else if (req.reqType == "get" && req.connectionID && req.docID && (req.version || req.version == 0)){
+        res.statusCode = 200;
+        res.message = "Received get request";
+    } else {
+        res.statusCode = 400;
+        res.message = "Invalid message format";
+    }
+    if(!res.connectionID) res.connectionID = "unknown";
+    if(!res.docID) res.docID = "unknown";
+    if(!res.reqType) res.reqType = "unknown";
+    resT <:: res;
+    return 1; 
+    }
+}
+
+node LogResp {
+    var s: trigger in<Response>;
+    export ctor <trigger in<Response> subject> : s(subject){}
+    fire {
+        $stderr <:: "logResp: " <:j: (<:: s) <:: '\n';
+        return 1;
+    }
+}
+
+node LogB {
+    var b: trigger in<Broadcast>;
+    export ctor <trigger in<Broadcast> broadcast>: b(broadcast){}
+    fire {
+        $stderr <:: "logB: " <:j: (<::b) <:: '\n';
+        return 1;
+    }
+}
+
+
 
 /////////////// TESTING ////////////////////
 
