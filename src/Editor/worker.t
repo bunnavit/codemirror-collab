@@ -4,9 +4,15 @@ type TextLeaf = sig<TextLeaf>;
 type TextNode = sig<TextNode>;
 type ChangeSet = sig<ChangeSet>;
 
-type ChangeSetReturn = 
+type ChangeSetJSONReturn = 
 <
     ChangeSet value,
+    string error
+>;
+
+type MakeDocReturn =
+<
+    BaseText value,
     string error
 >;
 
@@ -122,13 +128,24 @@ class BaseText {
 }
 
 // Create document with array of lines
-function <BaseText> makeDoc <Text text> {
+function <MakeDocReturn> makeDoc <Text text> {
+    var error: string;
+    var doc: BaseText;
+    var makeDocReturn: MakeDocReturn;
+    makeDocReturn = {
+        doc,
+        error
+    };
     if(|text| == 0){
-        $stderr <:: "A document must have at least one line" <:: '\n';
+        makeDocReturn.error = "A document must have at least one line";
+    } else if(|text| == 1 && !text[0]) {
+        makeDocReturn.value = emptyText();
+    } else if(|text| <= 32){
+        makeDocReturn.value = TextLeaf(text);
+    } else {
+        makeDocReturn.value = nodeFromChildren(leafsFromText(text));
     }
-    if(|text| == 1 && !text[0]) return emptyText();
-    if(|text| <= 32) return TextLeaf(text);
-    return nodeFromChildren(leafsFromText(text));
+    return makeDocReturn;
 }
 
 //////////////// TEXT LEAF //////////////////////
@@ -477,12 +494,18 @@ class ChangeSet {
     }
 }
 
-function <ChangeSet> changeSetFromJSON <Changes json> {
+function <ChangeSetJSONReturn> changeSetFromJSON <Changes json> {
     var sections: list<int>;
     var inserted: list<BaseText>;
     var i = 0;
     var error: string;
-    var changeSetReturn: ChangeSetReturn;
+    var changeSet: ChangeSet;
+    var changeSetJSONReturn: ChangeSetJSONReturn;
+
+    if(!|json|){
+        error = "There are no changes";
+    }
+
     START: for(var iter = @fwd json; iter; iter++){
         var part = @elt iter;
         var changes = part.l;
@@ -510,7 +533,7 @@ function <ChangeSet> changeSetFromJSON <Changes json> {
                 text ~> str.s;
             }
             // ERR?: different
-            inserted ~> makeDoc(text);
+            inserted ~> makeDoc(text).value;
             if(!(changes[0].i || changes[0].i == 0)){
                 error = "Invalid changes form";
                 break START;
@@ -522,8 +545,16 @@ function <ChangeSet> changeSetFromJSON <Changes json> {
         }
         i++;
     }
-    if(error) return ChangeSet(<list<int>>(), <list<BaseText>>());
-    return ChangeSet(sections, inserted);
+    if(error) {
+        changeSet = ChangeSet(<list<int>>(), <list<BaseText>>());
+    } else {
+        changeSet = ChangeSet(sections, inserted);
+    };
+    changeSetJSONReturn = {
+        changeSet,
+        error
+    };
+    return changeSetJSONReturn;
 }
 
 
@@ -580,37 +611,6 @@ function <Text> cloneText <Text text> {
     return newText;
 }
 
-//////////////// MAIN //////////////////////
-
-entry <int> main <> {
-    testing();
-
-    // generateInput(10000);
-    
-    // node testing
-    var $W0: wire<Response>[32];
-    var $B0: wire<Broadcast>[32];
-    var $W1: wire<string>[3];
-    // create test
-    (out $W1) <:: "{\"reqType\": \"create\", \"doc\" : [\"text1\", \"text2\", \"text3\"],\"connectionID\": \"bob\",\"docID\": \"doc1\"}";
-
-    // get test
-    (out $W1) <:: "{reqType: \"get\", connectionID: \"bob\", docID: \"doc1\"}";
-
-    // push test
-    (out $W1) <:: "{reqType: \"push\", version: 0, docID: \"doc1\", updates: [{\"connectionID\": \"bob\", changes: [17, [0, \"\", \"text4\"]]}]}";
-
-    // invalid test
-    (out $W1) <:: "{test: \"test\"}";
-    
-    node Doc(trigger in $W1, trigger out $W0, trigger out $B0);
-    node LogResp(trigger in $W0);
-    node LogB(trigger in $B0);
-
-    fork $numcores();
-    return 0;
-}
-
 /////////////// NODE /////////////////////
 
 type Response =
@@ -635,9 +635,10 @@ node Doc
   var resT: trigger out<Response>;
   var res: Response;
   var req : Request;
-  var doc: BaseText;
-  var updates: list<DocUpdate>;
-  #meta menu "Utility/Regex"
+  var docMap: map <string> to <BaseText>;
+  var connectionMap: map <string> to <string>;
+  var updatesMap: map <string> to <list<DocUpdate>>;
+  #meta menu "Utility/Operation"
   export ctor <trigger in<string> subject, trigger out<Response> response, trigger out<Broadcast> broadcast> : s(subject), resT(response), b(broadcast) {}
   fire { 
     req = <Request> <:j: <stream>(<::s);
@@ -645,34 +646,61 @@ node Doc
     res.docID = req.docID;
     res.reqType = req.reqType;
     // creation
-    if(req.reqType == "create" && req.doc && req.connectionID && req.docID){
-        doc = makeDoc(req.doc);
-        res.statusCode = 200;
-        res.message = "Created document";
+    if(req.reqType == "create" && req.doc && req.connectionID){
+        var doc = makeDoc(req.doc);
+        if(doc.error){
+            res.statusCode = 400;
+            res.message = doc.error;
+        } else {
+            var docId = $uuid_unparse($uuid());
+            docMap[docId] = doc.value;
+            updatesMap[docId] = <list<DocUpdate>>();
+            res.statusCode = 200;
+            res.message = docId;
+        }
     } else if (req.reqType == "push" && (req.version || req.version == 0) && req.docID && req.updates){
-        if(req.version != |updates|){
+        var doc = docMap(req.docID) \\ {};
+        if(!doc){
+            res.statusCode = 400;
+            res.message = "No document found";
+        } else if(req.version != |updatesMap(req.docID)|){
             res.statusCode = 409;
             res.message = "Incorrect document version";
         } else {
-            for var update in req.updates do {
-                var changeSet = changeSetFromJSON(update.changes);
+            res.statusCode = 200;
+            res.message = "Changes pushed";
+            var errorIndex = 0;
+            var updates = req.updates;
+            START: for var update in req.updates do {
+                var changeSetReturn = changeSetFromJSON(update.changes);
+                var changeSet = changeSetReturn.value;
+                var error = changeSetReturn.error;
+                if(error){
+                    res.statusCode = 400;
+                    res.message = error;
+                    updates = <Updates>();
+                    var i = 0;
+                    for (var uIter = @fwd req.updates; i < errorIndex; uIter++){
+                        updates ~> @elt uIter;
+                        i++;
+                    }
+                    break START;
+                }
                 var docUpdate: DocUpdate = {"changes": changeSet, "connectionID": update.connectionID};
                 // TODO: revisit this (prob not the best way to do this)
                 res.connectionID = update.connectionID;
-                updates ~> docUpdate;
+                updatesMap(req.docID) ~> docUpdate;
                 changeSet->apply(doc);
+                errorIndex++;
             }
-            res.statusCode = 200;
-            res.message = "Changes pushed";
-            var bMessage: Broadcast = {
-                "docID": req.docID, 
-                "message": <string>(<stream[@utf8]>() <:j: req.updates)
-            };
-            b <:: bMessage;
+            if(|updates|) {
+                var bMessage: Broadcast = {
+                    "docID": req.docID, 
+                    "message": <string>(<stream[@utf8]>() <:j: updates)
+                };
+                b <:: bMessage;
+            }
         }
-    } else if (req.reqType == "get" && req.connectionID && req.docID && (req.version || req.version == 0)){
-        res.statusCode = 200;
-        res.message = "Received get request";
     } else {
         res.statusCode = 400;
         res.message = "Invalid message format";
@@ -687,6 +715,7 @@ node Doc
 
 node LogResp {
     var s: trigger in<Response>;
+    #meta menu "Utility/Operation"
     export ctor <trigger in<Response> subject> : s(subject){}
     fire {
         $stderr <:: "logResp: " <:j: (<:: s) <:: '\n';
@@ -696,11 +725,83 @@ node LogResp {
 
 node LogB {
     var b: trigger in<Broadcast>;
+    #meta menu "Utility/Operation"
     export ctor <trigger in<Broadcast> broadcast>: b(broadcast){}
     fire {
         $stderr <:: "logB: " <:j: (<::b) <:: '\n';
         return 1;
     }
+}
+
+//////////////// TESTING NODE /////////////
+
+node GetDocId {
+    var i: trigger in <Response>;
+    var o: trigger out <string>;
+    var b: trigger out <bool>;
+    var resp: Response;
+    #meta menu "Utility/Operation"
+    export ctor <trigger in<Response> input, trigger out<string> output, trigger out<bool> isDoc> : i(input), o(output), b(isDoc){}
+    fire {
+        resp = <Response>(<::i);
+        var message = resp.message;
+        o <:: resp.message;
+        if($uuid_parse(message)){
+            b <:: true;
+        } else {
+            b <:: false;
+        }
+        return 1;
+    }
+}
+
+node PushNode {
+    var s: trigger in <string>;
+    var b: trigger in <bool>;
+    var o: trigger out <string>;
+    #meta menu "Utility/Operation"
+    export ctor <trigger in<string> input, trigger in<bool> isDoc, trigger out<string> output> : s(input), b(isDoc), o(output) {}
+    fire {
+        var message = <string>(<::s);
+        var isDoc = <bool>(<::b);
+        if(isDoc){
+            message = "{reqType: \"push\", version: 0, docID: \"" + message + "\", updates: [{\"connectionID\": \"bob\", changes: [17, [0, \"\", \"text4\"]]}]}";
+            o <:: message;
+        }
+        return 1;
+    }
+
+}
+
+
+//////////////// MAIN //////////////////////
+
+entry <int> main <> {
+    testing();
+
+    // generateInput(10000);
+    
+    // node testing
+    var $W0: wire<Response>[32];
+    var $B0: wire<Broadcast>[32];
+    var $W1: wire<string>[3];
+    var $Message: wire<string>[3];
+    var $IsDoc: wire<bool>[3];
+    
+    // create test
+    (out $W1) <:: "{\"reqType\": \"create\", \"doc\" : [\"text1\", \"text2\", \"text3\"],\"connectionID\": \"bob\"}";
+
+    // invalid test
+    (out $W1) <:: "{test: \"test\"}";
+    
+    node Doc(trigger in $W1, trigger out $W0, trigger out $B0);
+    node GetDocId(trigger in $W0, trigger out $Message, trigger out $IsDoc);
+    node PushNode(trigger in $Message, trigger in $IsDoc, trigger out $W1);
+    node LogResp(trigger in $W0);
+    node LogB(trigger in $B0);
+
+    fork $numcores();
+    return 0;
 }
 
 
@@ -788,14 +889,19 @@ function <> utilTest <> {
 }
 
 function <> baseTextTest <> {
+    function <> makeDocError <> {
+        var text = <Text>();
+        assert(makeDoc(text).error);
+        assert(makeDoc(text).value == <BaseText>());
+    }
     function <> makeDocTest <> {
         var text = [""];
-        var doc = makeDoc(text);
+        var doc = makeDoc(text).value;
         assert(doc->isLeaf());
         assertListEq(doc->getText(), text);
 
         text = generateText(3);
-        doc = makeDoc(text);
+        doc = makeDoc(text).value;
         assert(doc->isLeaf());
         assert(|doc->getChildren()| == 0);
         assert(doc->getLines() == 3);
@@ -803,7 +909,7 @@ function <> baseTextTest <> {
         assertListEq(doc->getText(), text); 
 
         text = generateText(34);
-        doc = makeDoc(text);
+        doc = makeDoc(text).value;
         assert(!doc->isLeaf());
         assert(|doc->getChildren()| == 2);
         assert(doc->getLines() == 34);
@@ -814,7 +920,7 @@ function <> baseTextTest <> {
         assertListEq(leaf2->getText(), expectedText);
 
         text = generateText(100_000);
-        doc = makeDoc(text);
+        doc = makeDoc(text).value;
         assert(!doc->isLeaf());
         assert(|doc->getChildren()| == 33);
         assert(doc->getLines() == 100_000);
@@ -838,6 +944,7 @@ function <> baseTextTest <> {
         assert(firstLeaf->length == 214);
         assertListEq(firstLeaf->getText(), generateText(32));
     }
+    makeDocError();
     makeDocTest();
 }
 
@@ -969,11 +1076,22 @@ function <> textNodeTest <> {
 }
 
 function <> changeSetTest <> {
+    function <> changeSetFromJSONError <> {
+        var test = "[]";
+        var changes = <Changes> <:j: <stream>(test);
+        var error = changeSetFromJSON(changes).error;
+        assert(error);
+
+        var test2 = "[\"test\",2,3,4]";
+        changes = <Changes> <:j: <stream>(test2);
+        error = changeSetFromJSON(changes).error;
+        assert(error);
+    }
     // delete 23 characters from start of document
     function <> changeSetFromJSONTestDelete <> {
         var test = "[[23], 208]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         var expectedSections = [ 23, 0, 208, -1];
         assertListEq(expectedSections, vecToList(changeSet->sections));
         assert(|changeSet->inserted| == 0);
@@ -982,7 +1100,7 @@ function <> changeSetTest <> {
     function <> changeSetFromJSONTestInsert1 <> {
         var test = "[[0, \"text1\", \"text2\", \"text3\", \"text4\"], 228]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         var expectedSections = [0, 23, 228, -1];
         assertListEq(expectedSections, vecToList(changeSet->sections));
         var inserted = changeSet->inserted;
@@ -996,7 +1114,7 @@ function <> changeSetTest <> {
     function <> changeSetFromJSONTestInsert2 <> {
         var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         var expectedSections = [228, -1, 0, 24];
         assertListEq(expectedSections, vecToList(changeSet->sections));
         var inserted = changeSet->inserted;
@@ -1010,7 +1128,7 @@ function <> changeSetTest <> {
     function <> changeSetFromJSONTestInsert3 <> {
         var test = "[74, [0, \"a\"], 28, [0, \"a\"], 28, [0, \"a\"], 98]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         var expectedSections = [74, -1, 0, 1, 28, -1, 0, 1, 28, -1, 0, 1, 98, -1];
         assertListEq(expectedSections, vecToList(changeSet->sections));
         assert(|changeSet->inserted| == 6);
@@ -1032,10 +1150,10 @@ function <> changeSetTest <> {
     }
     // delete 26 lines at the start of document
     function <> changeSetTestApply1 <> {
-        var doc = makeDoc(generateText(40));
+        var doc = makeDoc(generateText(40)).value;
         var test = "[[26], 244]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         doc = changeSet->apply(doc);
         var children = doc->getChildren();
         assert(|children| == 2);
@@ -1046,11 +1164,11 @@ function <> changeSetTest <> {
     }
     // delete lines and convert from node to leaf when small enough
     function <> changeSetTestApply2 <> {
-        var doc = makeDoc(generateText(34));
+        var doc = makeDoc(generateText(34)).value;
         assert(!doc->isLeaf());
         var test = "[[26], 202]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         doc = changeSet->apply(doc);
         assert(doc->isLeaf());
         var expectedText = generateText(34);
@@ -1060,10 +1178,10 @@ function <> changeSetTest <> {
     }
     // insert and apply multiple lines at the end of doc
     function <> changeSetTestApply3 <> {
-        var doc = makeDoc(generateText(34));
+        var doc = makeDoc(generateText(34)).value;
         var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         doc = changeSet->apply(doc);
         assert(|doc->getChildren()| == 2);
         assertListEq(doc->getChildren()[0]->getText(), generateText(32));
@@ -1071,10 +1189,10 @@ function <> changeSetTest <> {
     }
     // replacement of text
     function <> changeSetTestApply4 <> {
-        var doc = makeDoc(generateText(34));
+        var doc = makeDoc(generateText(34)).value;
         var test = "[89, [34, \"text20\", \"text21\", \"text22\", \"text23\"], 105]";
         var changes = <Changes> <:j: <stream>(test);
-        var changeSet = changeSetFromJSON(changes);
+        var changeSet = changeSetFromJSON(changes).value;
         doc = changeSet->apply(doc);
         assert(|doc->getChildren()| == 2);
         var leaf1 = doc->getChildren()[0];
@@ -1083,6 +1201,7 @@ function <> changeSetTest <> {
         var leaf2 = doc->getChildren()[1];
         assertListEq(leaf2->getText(), generateText(33, 34));
     }
+    changeSetFromJSONError();
     changeSetFromJSONTestDelete();
     changeSetFromJSONTestInsert1();
     changeSetFromJSONTestInsert2();

@@ -1,43 +1,46 @@
-import Utility;
 
 entry <int> main <> // new
 {
-   var $W0 : wire<int>[32];
-   var $W1 : wire<int>[3];
-   // once [-2]
-   (out $W1) <:: <int>(5);
-   // $count$FOT2XdYd [-1]
-   node $count(trigger in $W1, trigger out $W0);
-   // log [-5]
-   node $log_d(trigger in $W0, @unused trigger out <int>);
-   // once [-3]
-   (out $W1) <:: <int>(0);
-   // once [-4]
-   (out $W1) <:: <int>(3);
 
-  $stdout <:: "starting loop" <:: '\n';
-   for (var i = 0; i < 5; i++){
-    (out $W1) <:: <int>(1);
-    }
+   var $W0: wire<string>[1];
+   var $T: wire<string>[1];
+   var $W1: wire<string>[32];
+
+   node testNode(in $W0, trigger in $T, trigger out $W1);
+   node log(trigger in $W1);
+
+   for (var i = 0; i < 10; i++){
+      (out $W0) <:: <string>(i);
+   } 
+
+   (out $T) <:: <string>("T");
+   
    fork $numcores();
    return 0;
 }
 
-node $log_d
+node testNode
 {
-   var input : trigger in<int>;
-   var ack : trigger out<int>;
-   var comp, circ, capt : string;
-   var key : int;
-   export ctor <trigger in<int> input, trigger out<int> ack> : input(input), ack(ack) {}
+   var input : in<string>;
+   var inputT: trigger in<string>;
+   var output : trigger out<string>;
+   #meta menu "Utility/Operation"
+   export ctor <in<string> input, trigger in<string> inputT, trigger out<string> output>: input(input), inputT(inputT), output(output) {}
    fire {
-      var value = <:: input;
-      $stderr <:: value <:: '\n';
-      if (! @unused ack) ack <:: value;
-      return 1;
+      if(input) {
+         output <:: <:: input; 
+         return 1;
+      } else {
+         return $Yield;
+      }
    }
 }
 
-node Doc {
-  
+node log {
+   var input: trigger in<string>;
+   export ctor <trigger in<string> input> : input(input){}
+   fire{
+      $stderr <:: (<:: input) <:: '\n';
+      return 1;
+   } 
 }
