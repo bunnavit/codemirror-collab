@@ -631,7 +631,8 @@ type Broadcast =
 node Doc
 {
   var s : trigger in<string>;
-  var b: trigger out<Broadcast>;
+  var broadcastT: trigger out<Broadcast>;
+  var broadcast: Broadcast;
   var resT: trigger out<Response>;
   var res: Response;
   var req : Request;
@@ -639,7 +640,7 @@ node Doc
   var connectionMap: map <string> to <string>;
   var updatesMap: map <string> to <list<DocUpdate>>;
   #meta menu "Utility/Operation"
-  export ctor <trigger in<string> subject, trigger out<Response> response, trigger out<Broadcast> broadcast> : s(subject), resT(response), b(broadcast) {}
+  export ctor <trigger in<string> subject, trigger out<Response> response, trigger out<Broadcast> broadcast> : s(subject), resT(response), broadcastT(broadcast) {}
   fire { 
     req = <Request> <:j: <stream>(<::s);
     res.connectionID = req.connectionID;
@@ -694,11 +695,10 @@ node Doc
                 errorIndex++;
             }
             if(|updates|) {
-                var bMessage: Broadcast = {
+                broadcast = {
                     "docID": req.docID, 
                     "message": <string>(<stream[@utf8]>() <:j: updates)
                 };
-                b <:: bMessage;
             }
         }
     } else {
@@ -709,6 +709,7 @@ node Doc
     if(!res.docID) res.docID = "unknown";
     if(!res.reqType) res.reqType = "unknown";
     resT <:: res;
+    broadcastT <:: broadcast;
     return 1; 
     }
 }
@@ -718,7 +719,7 @@ node LogResp {
     #meta menu "Utility/Operation"
     export ctor <trigger in<Response> subject> : s(subject){}
     fire {
-        $stderr <:: "logResp: " <:j: (<:: s) <:: '\n';
+        $stderr <:: "logResp: " <:k: (<::s) <:: '\n';
         return 1;
     }
 }
@@ -728,7 +729,7 @@ node LogB {
     #meta menu "Utility/Operation"
     export ctor <trigger in<Broadcast> broadcast>: b(broadcast){}
     fire {
-        $stderr <:: "logB: " <:j: (<::b) <:: '\n';
+        $stderr <:: "logB: " <:k: (<::b) <:: '\n';
         return 1;
     }
 }
