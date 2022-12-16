@@ -430,7 +430,7 @@ const generateText = (count) => {
 // version)
 var updates = [];
 // The current document
-var doc = Text.of(generateText(34));
+var doc = Text.of(generateText(3));
 
 console.log("doc", doc);
 

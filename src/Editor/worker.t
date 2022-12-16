@@ -16,86 +16,38 @@ type MakeDocReturn =
     string error
 >;
 
-type Create = 
-<
-    Text doc,
-    string connectionID,
-    string docID
->;
-
-type Get =
+type Updates = list<Update>;
+type Update = 
 <
     string connectionID,
-    string docID,
-    int version
+    Changes changes
 >;
 
-type Push = 
-  <
-    int version,
-    string docID,
-    Updates updates
-  >;
-type Updates = 
-    list<
-        string connectionID,
-        Changes changes
-    >;
-type Changes = list<
-        string $type,
-        int i, 
-        list<string $type, int i, string s> l
-    >;
+type Changes = list<Change>;
+type Change = 
+<
+    string $type,
+    int i, 
+    list<string $type, int i, string s> l
+>;
+
 type DocUpdate = 
 <
     string connectionID,
     ChangeSet changes
 >;
 
-type Request = 
-<
-    string reqType,
-    Text doc,
-    string connectionID,
-    string docID,
-    int version,
-    Updates updates
->;
-
 class BaseText {
     method length: int;
     ctor <> {}
-    method <int> getLines <> {
-        return this->getLines();
-    }
-
-    method <list<BaseText>> getChildren <> {
-        return this->getChildren();
-    }
-
-    method <Text> getText <> {
-        return this->getText();
-    }
-
-    method <bool> isLeaf <> {
-        return this->isLeaf();
-    }
-
-    method <> decompose <int from, int until, list<BaseText> target, int open> {
-        this->decompose(from, until, target, open);
-    }
-
-    method <string> sliceString <int from> {
-        return this->sliceString(from);
-    }
-
-    method <string> sliceString <int from, int until, string lineSep> {
-        return this->sliceString(from, until, lineSep);
-    }
-
-    method <> flatten <Text target> {
-        this->flatten(target);
-    }
+    method <int> getLines <>;
+    method <list<BaseText>> getChildren <>;
+    method <Text> getText <>;
+    method <bool> isLeaf <>;
+    method <> decompose <int from, int until, list<BaseText> target, int open>;
+    method <string> sliceString <int from>;
+    method <string> sliceString <int from, int until, string lineSep>;
+    method <> flatten <Text target>;
 
     // Replace a range of the text with the given content
     method <BaseText> replace <int from, int until, BaseText text> {
@@ -611,7 +563,57 @@ function <Text> cloneText <Text text> {
     return newText;
 }
 
+function <Text> cloneSharedText <shared Text text> {
+    var newText: Text;
+    for var line in text do {
+        newText ~> line;
+    }
+    return newText;
+}
+
+function <Updates> cloneSharedUpdates <shared Updates updates> {
+    var newUpdates: Updates;
+    for var update in updates do {
+        var newUpdate: Update = {
+            "connectionID": update.connectionID,
+            "changes": cloneSharedChanges(update.changes)
+        };
+        newUpdates ~> newUpdate;
+    }
+    return newUpdates;
+}
+
+function <Changes> cloneSharedChanges <shared Changes changes> {
+    var newChanges: Changes;
+    for var change in changes do {
+        var newChange: Change = {
+            "i": change.i,
+            "l": cloneSharedSubChanges(change.l)
+        };
+        newChanges ~> newChange;
+    }
+    return newChanges;
+}
+
+function <list<string $type, int i, string s>> cloneSharedSubChanges <shared list<string $type, int i, string s> l> {
+    var newSubChanges: list<string $type, int i, string s>;
+    for var subChange in l do {
+        newSubChanges ~> subChange;
+    }
+    return newSubChanges;
+}
+
 /////////////// NODE /////////////////////
+
+type Request = 
+<
+    string reqType,
+    shared Text doc,
+    string connectionID,
+    string docID,
+    int version,
+    shared Updates updates
+>;
 
 type Response =
 <
@@ -630,25 +632,30 @@ type Broadcast =
 
 node Doc
 {
-  var s : trigger in<string>;
+  var s : trigger in<Request>;
   var broadcastT: trigger out<Broadcast>;
   var broadcast: Broadcast;
   var resT: trigger out<Response>;
   var res: Response;
   var req : Request;
   var docMap: map <string> to <BaseText>;
-  var connectionMap: map <string> to <string>;
+  var connectionMap: map <string> to <set<string>>;
   var updatesMap: map <string> to <list<DocUpdate>>;
-  #meta menu "Utility/Operation"
-  export ctor <trigger in<string> subject, trigger out<Response> response, trigger out<Broadcast> broadcast> : s(subject), resT(response), broadcastT(broadcast) {}
+  #meta menu "Collab"
+  export ctor <trigger in<Request> subject, trigger out<Response> response, trigger out<Broadcast> broadcast> : s(subject), resT(response), broadcastT(broadcast) {}
   fire { 
-    req = <Request> <:j: <stream>(<::s);
+    broadcast = {};
+    res = {};
+    req = <Request>(<::s);
+    $stdout <:j: req <:: '\n'; 
     res.connectionID = req.connectionID;
     res.docID = req.docID;
     res.reqType = req.reqType;
+    // TODO: This is deep cloning (should optimize)
+    var clonedText = cloneSharedText(req.doc);
     // creation
     if(req.reqType == "create" && req.doc && req.connectionID){
-        var doc = makeDoc(req.doc);
+        var doc = makeDoc(clonedText);
         if(doc.error){
             res.statusCode = 400;
             res.message = doc.error;
@@ -656,6 +663,7 @@ node Doc
             var docId = $uuid_unparse($uuid());
             docMap[docId] = doc.value;
             updatesMap[docId] = <list<DocUpdate>>();
+            connectionMap[docId] = {req.connectionID};
             res.statusCode = 200;
             res.message = docId;
         }
@@ -671,17 +679,21 @@ node Doc
             res.statusCode = 200;
             res.message = "Changes pushed";
             var errorIndex = 0;
-            var updates = req.updates;
-            START: for var update in req.updates do {
+            // TODO: This is deep cloning (should optimize)
+            var updates = cloneSharedUpdates(req.updates);
+            var reqUpdates = cloneSharedUpdates(req.updates);
+            START: for var update in reqUpdates do {
                 var changeSetReturn = changeSetFromJSON(update.changes);
                 var changeSet = changeSetReturn.value;
                 var error = changeSetReturn.error;
+                // TODO: This should probably revert any changes if there are any errors
+                // Should not apply changes
                 if(error){
                     res.statusCode = 400;
                     res.message = error;
-                    updates = <Updates>();
+                    updates = {};
                     var i = 0;
-                    for (var uIter = @fwd req.updates; i < errorIndex; uIter++){
+                    for (var uIter = @fwd reqUpdates; i < errorIndex; uIter++){
                         updates ~> @elt uIter;
                         i++;
                     }
@@ -701,6 +713,16 @@ node Doc
                 };
             }
         }
+    } else if (req.reqType == "subscribe" && req.connectionID && req.docID) {
+        var connectionSet = connectionMap(req.docID) \\ {};
+        if(!connectionSet){
+            res.statusCode = 400;
+            res.message = "No document found";
+        } else {
+            connectionSet += req.connectionID;
+            res.statusCode = 200;
+            res.message = "Subscribed to " + req.docID;
+        }
     } else {
         res.statusCode = 400;
         res.message = "Invalid message format";
@@ -716,33 +738,63 @@ node Doc
 
 node LogResp {
     var s: trigger in<Response>;
-    #meta menu "Utility/Operation"
+    #meta menu "Collab"
     export ctor <trigger in<Response> subject> : s(subject){}
     fire {
-        $stderr <:: "logResp: " <:k: (<::s) <:: '\n';
+        $stderr <:: "logResp: " <:K: (<::s) <:: '\n';
         return 1;
     }
 }
 
 node LogB {
     var b: trigger in<Broadcast>;
-    #meta menu "Utility/Operation"
+    #meta menu "Collab"
     export ctor <trigger in<Broadcast> broadcast>: b(broadcast){}
     fire {
-        $stderr <:: "logB: " <:k: (<::b) <:: '\n';
+        $stderr <:: "logB: " <:K: (<::b) <:: '\n';
         return 1;
     }
 }
 
 //////////////// TESTING NODE /////////////
 
+type CreateRequest = 
+<
+    string reqType,
+    shared Text doc,
+    string connectionID
+>;
+
+node MakeCreateRequest {
+    var t: trigger in <shared Text>;
+    var cid: trigger in <string>;
+    var o: trigger out <CreateRequest>;
+    #meta menu "Collab"
+    export ctor <
+        trigger in<shared Text> text,
+        trigger in<string> connectionID, 
+        trigger out<CreateRequest> req 
+        > : t(text), cid(connectionID), o(req) {} 
+    fire {
+        var text = <shared Text>(<::t);
+        var connectionID = <string>(<::cid);
+        var req: CreateRequest = {
+            "reqType": "create",
+            "connectionID": connectionID,
+            "doc": text
+        };
+        o <:: req;
+        return 1;
+    }
+}
+
 node GetDocId {
     var i: trigger in <Response>;
-    var o: trigger out <string>;
     var b: trigger out <bool>;
+    var o: trigger out <string>;
     var resp: Response;
-    #meta menu "Utility/Operation"
-    export ctor <trigger in<Response> input, trigger out<string> output, trigger out<bool> isDoc> : i(input), o(output), b(isDoc){}
+    #meta menu "Collab"
+    export ctor <trigger in<Response> input, trigger out<bool> isDoc, trigger out<string> output> : i(input), b(isDoc), o(output){}
     fire {
         resp = <Response>(<::i);
         var message = resp.message;
@@ -756,22 +808,102 @@ node GetDocId {
     }
 }
 
-node PushNode {
-    var s: trigger in <string>;
-    var b: trigger in <bool>;
-    var o: trigger out <string>;
-    #meta menu "Utility/Operation"
-    export ctor <trigger in<string> input, trigger in<bool> isDoc, trigger out<string> output> : s(input), b(isDoc), o(output) {}
+type PushRequest = 
+<
+    string reqType,
+    string connectionID,
+    string docID,
+    int version,
+    shared Updates updates
+>;
+
+node MakePushRequest {
+    var cid: trigger in <string>;
+    var did: trigger in <string>;
+    var v: trigger in <int>;
+    var u: trigger in <shared Updates>;
+    var o: trigger out <PushRequest>;
+    #meta menu "Collab"
+    export ctor <
+        trigger in<string> connectionID,
+        trigger in<string> docID,
+        trigger in<int> version,
+        trigger in <shared Updates> updates,
+        trigger out<PushRequest> output
+    > : cid(connectionID), did(docID), v(version), u(updates), o(output) {}
     fire {
-        var message = <string>(<::s);
-        var isDoc = <bool>(<::b);
-        if(isDoc){
-            message = "{reqType: \"push\", version: 0, docID: \"" + message + "\", updates: [{\"connectionID\": \"bob\", changes: [17, [0, \"\", \"text4\"]]}]}";
-            o <:: message;
-        }
+        var connectionID = <string>(<::cid);
+        var docID = <string>(<::did);
+        var version = <int>(<::v);
+        var updates = <shared Updates>(<::u);
+        var message: PushRequest = {
+            "reqType": "push",
+            "connectionID": connectionID,
+            "docID": docID,
+            "version": version,
+            "updates": updates
+        };
+        o <:: message;
         return 1;
     }
+}
 
+node MakeChanges {
+    var i: trigger in <string>;
+    var o: trigger out <shared Changes>;
+    #meta menu "Collab"
+    export ctor <
+        trigger in<string> input,
+        trigger out<shared Changes> output
+    >: i(input), o(output) {}
+    fire {
+        var changes = <shared Changes> <:j: <stream>(<::i);
+        o <:: changes;
+        return 1;
+    }
+}
+
+node SubscribeNode {
+    var d: trigger in <string>;
+    var c: trigger in <string>;
+    var m: trigger out<string>;
+    #meta menu "Collab"
+    export ctor <
+        trigger in<string> docID,
+        trigger in<string> connectionID,
+        trigger out<string> message
+    > : d(docID), c(connectionID), m(message) {}
+    fire {
+        var docID = <string>(<::d);
+        var connectionID = <string>(<::c);
+        var message = 
+            "{reqType: \"subscribe\", docID: \"" + 
+            docID + 
+            "\", connectionID: \"" + 
+            connectionID + "\"}";
+        m <:: message;
+        return 1;
+    }
+}
+
+node echoif
+{
+   var gate : trigger in<bool>;
+   var i0 : trigger in<string>;
+   var o0 : trigger out<string>;
+    export ctor <trigger in<bool> gate, trigger in<string> i0, trigger out<string> o0> : gate(gate), i0(i0), o0(o0) {}
+    fire
+    {
+       if (<:: gate)
+       {
+          o0 <:: <:: i0;
+       }
+       else
+       {
+          <:: i0;
+       }
+       return 1;
+    }
 }
 
 
@@ -783,23 +915,33 @@ entry <int> main <> {
     // generateInput(10000);
     
     // node testing
-    var $W0: wire<Response>[32];
-    var $B0: wire<Broadcast>[32];
-    var $W1: wire<string>[3];
-    var $Message: wire<string>[3];
+    var $Response: wire<Response>[32];
+    var $Broadcast: wire<Broadcast>[32];
+    var $DocInput: wire<string>[3];
+    var $DocID: wire<string>[3];
+    var $CheckDocID: wire<string>;
     var $IsDoc: wire<bool>[3];
+    var $ConnectionID: wire<string>;
+
+    // constant stream
+    (out $ConnectionID) <:: <string>("bob");
     
     // create test
-    (out $W1) <:: "{\"reqType\": \"create\", \"doc\" : [\"text1\", \"text2\", \"text3\"],\"connectionID\": \"bob\"}";
+    (out $DocInput) <:: "{\"reqType\": \"create\", \"doc\" : [\"text1\", \"text2\", \"text3\"],\"connectionID\": \"bob\"}";
 
     // invalid test
-    (out $W1) <:: "{test: \"test\"}";
+    (out $DocInput) <:: "{test: \"test\"}";
     
-    node Doc(trigger in $W1, trigger out $W0, trigger out $B0);
-    node GetDocId(trigger in $W0, trigger out $Message, trigger out $IsDoc);
-    node PushNode(trigger in $Message, trigger in $IsDoc, trigger out $W1);
-    node LogResp(trigger in $W0);
-    node LogB(trigger in $B0);
+    // node Doc(trigger in $DocInput, trigger out $Response, trigger out $Broadcast);
+    // node GetDocId(trigger in $Response, trigger out $CheckDocID, trigger out $IsDoc);
+
+    // node echoif(trigger in $IsDoc, trigger in $CheckDocID, trigger out $DocID);
+    // node PushNode(trigger in $DocID, trigger out $DocInput);
+
+    // node SubscribeNode(trigger in $DocID, trigger in $ConnectionID, trigger out $DocInput);
+
+    // node LogResp(trigger in $Response);
+    node LogB(trigger in $Broadcast);
 
     fork $numcores();
     return 0;

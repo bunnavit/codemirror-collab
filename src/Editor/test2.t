@@ -1,14 +1,13 @@
-import AWS/Types/DynamoDB;
-
 function <int> main <> {
-    var m: map <string> to <AWS$DynamoDB$AttributeValue>;
-    m = { "connectionId": { "S": "something" }, "sub": {"S": "bob"}};
+    var l: shared list<string> = ["1", "2", "3"];
+    var nsl: list<string>;
 
-    var m1: map <string> to <string>;
-    m1["1"] = "1";
-    m1("test") \\ {};
-    
-    $stdout <:: <bool>(m1("test") \\ {})<:: '\n';
+    for var i in l do {
+        nsl ~> i;
+    }
+
+    $stdout <:j: <list<string>>(l) <:: '\n';
+    $stdout <:j: <list<string>>(nsl) <:: '\n';
 
     return 0;
 }
