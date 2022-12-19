@@ -458,6 +458,8 @@ function <ChangeSetJSONReturn> changeSetFromJSON <Changes json> {
         error = "There are no changes";
     }
 
+    $stdout <:j: json <:: '\n'; 
+
     START: for(var iter = @fwd json; iter; iter++){
         var part = @elt iter;
         var changes = part.l;
@@ -683,6 +685,7 @@ node Doc
             var updates = cloneSharedUpdates(req.updates);
             var reqUpdates = cloneSharedUpdates(req.updates);
             START: for var update in reqUpdates do {
+                $stdout <:: "update: " <:j: req.updates[0] <:: '\n';
                 var changeSetReturn = changeSetFromJSON(update.changes);
                 var changeSet = changeSetReturn.value;
                 var error = changeSetReturn.error;
