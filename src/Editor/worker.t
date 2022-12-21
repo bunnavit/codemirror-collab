@@ -70,6 +70,10 @@ class BaseText {
         return replace(this->length, this->length, other);
     }
 
+    method <string> toString <> {
+        return this->sliceString(0);
+    }
+
     // Convert the document to an array of lines 
     // which can be deserialized again via makeDoc
     method <Text> toJSON <> {
@@ -458,8 +462,6 @@ function <ChangeSetJSONReturn> changeSetFromJSON <Changes json> {
         error = "There are no changes";
     }
 
-    $stdout <:j: json <:: '\n'; 
-
     START: for(var iter = @fwd json; iter; iter++){
         var part = @elt iter;
         var changes = part.l;
@@ -574,35 +576,17 @@ function <Text> cloneSharedText <shared Text text> {
 }
 
 function <Updates> cloneSharedUpdates <shared Updates updates> {
-    var newUpdates: Updates;
-    for var update in updates do {
-        var newUpdate: Update = {
-            "connectionID": update.connectionID,
-            "changes": cloneSharedChanges(update.changes)
-        };
-        newUpdates ~> newUpdate;
-    }
+    var cloneStr = <string>(<stream[@utf8]>() <:j: updates);
+    var newUpdates = <Updates> <:j: <stream>(cloneStr);
     return newUpdates;
 }
 
-function <Changes> cloneSharedChanges <shared Changes changes> {
-    var newChanges: Changes;
-    for var change in changes do {
-        var newChange: Change = {
-            "i": change.i,
-            "l": cloneSharedSubChanges(change.l)
-        };
-        newChanges ~> newChange;
+function <set<string>> cloneStringSet <set<string> strSet> {
+    var newSet: <set<string>>;
+    for var str in strSet do {
+        newSet += str;
     }
-    return newChanges;
-}
-
-function <list<string $type, int i, string s>> cloneSharedSubChanges <shared list<string $type, int i, string s> l> {
-    var newSubChanges: list<string $type, int i, string s>;
-    for var subChange in l do {
-        newSubChanges ~> subChange;
-    }
-    return newSubChanges;
+    return newSet;
 }
 
 /////////////// NODE /////////////////////
@@ -623,13 +607,39 @@ type Response =
     string docID,
     string reqType,
     int statusCode,
-    string message
+    string message,
+    string doc,
+    int version
 >;
 
 type Broadcast = 
 <
     string docID,
-    string message
+    string updates,
+    shared set<string> connectionSet
+>;
+
+type CreateRequest = 
+<
+    string reqType,
+    shared Text doc,
+    string connectionID
+>;
+
+type SubscribeRequest = 
+<
+    string reqType,
+    string connectionID,
+    string docID
+>;
+
+type PushRequest = 
+<
+    string reqType,
+    string connectionID,
+    string docID,
+    int version,
+    shared Updates updates
 >;
 
 node Doc
@@ -653,28 +663,38 @@ node Doc
     res.connectionID = req.connectionID;
     res.docID = req.docID;
     res.reqType = req.reqType;
-    // TODO: This is deep cloning (should optimize)
-    var clonedText = cloneSharedText(req.doc);
+
+    var connectionSet = connectionMap(req.docID) \\ {};
+    var updates = updatesMap(req.docID) \\ {};
+    var doc = docMap(req.docID) \\ {};
+    
     // creation
     if(req.reqType == "create" && req.doc && req.connectionID){
-        var doc = makeDoc(clonedText);
-        if(doc.error){
+        // TODO: This is deep cloning (should optimize)
+        var clonedText = cloneSharedText(req.doc);
+        var newDoc = makeDoc(clonedText);
+        if(newDoc.error){
             res.statusCode = 400;
-            res.message = doc.error;
+            res.message = newDoc.error;
         } else {
-            var docId = $uuid_unparse($uuid());
-            docMap[docId] = doc.value;
-            updatesMap[docId] = <list<DocUpdate>>();
-            connectionMap[docId] = {req.connectionID};
+            var docID = $uuid_unparse($uuid());
+            docMap[docID] = newDoc.value;
+            updatesMap[docID] = <list<DocUpdate>>();
+            connectionMap[docID] = {req.connectionID};
             res.statusCode = 200;
-            res.message = docId;
+            res.docID = docID;
+            res.message = "Created document";
         }
-    } else if (req.reqType == "push" && (req.version || req.version == 0) && req.docID && req.updates){
-        var doc = docMap(req.docID) \\ {};
+    } else if (
+            req.reqType == "push" && 
+            (req.version || req.version == 0) && 
+            req.docID && req.updates &&
+            req.connectionID
+        ){
         if(!doc){
             res.statusCode = 400;
             res.message = "No document found";
-        } else if(req.version != |updatesMap(req.docID)|){
+        } else if(req.version != |updates|){
             res.statusCode = 409;
             res.message = "Incorrect document version";
         } else {
@@ -682,10 +702,9 @@ node Doc
             res.message = "Changes pushed";
             var errorIndex = 0;
             // TODO: This is deep cloning (should optimize)
-            var updates = cloneSharedUpdates(req.updates);
+            var newUpdates = cloneSharedUpdates(req.updates);
             var reqUpdates = cloneSharedUpdates(req.updates);
             START: for var update in reqUpdates do {
-                $stdout <:: "update: " <:j: req.updates[0] <:: '\n';
                 var changeSetReturn = changeSetFromJSON(update.changes);
                 var changeSet = changeSetReturn.value;
                 var error = changeSetReturn.error;
@@ -694,10 +713,10 @@ node Doc
                 if(error){
                     res.statusCode = 400;
                     res.message = error;
-                    updates = {};
+                    newUpdates = {};
                     var i = 0;
                     for (var uIter = @fwd reqUpdates; i < errorIndex; uIter++){
-                        updates ~> @elt uIter;
+                        newUpdates ~> @elt uIter;
                         i++;
                     }
                     break START;
@@ -705,34 +724,42 @@ node Doc
                 var docUpdate: DocUpdate = {"changes": changeSet, "connectionID": update.connectionID};
                 // TODO: revisit this (prob not the best way to do this)
                 res.connectionID = update.connectionID;
-                updatesMap(req.docID) ~> docUpdate;
+                updates ~> docUpdate;
                 changeSet->apply(doc);
                 errorIndex++;
             }
-            if(|updates|) {
+            if(|newUpdates|) {
                 broadcast = {
                     "docID": req.docID, 
-                    "message": <string>(<stream[@utf8]>() <:j: updates)
+                    "updates": <string>(<stream[@utf8]>() <:j: newUpdates),
+                    "connectionSet": share cloneStringSet(connectionSet)
                 };
             }
         }
     } else if (req.reqType == "subscribe" && req.connectionID && req.docID) {
-        var connectionSet = connectionMap(req.docID) \\ {};
-        if(!connectionSet){
+        if(!connectionSet || !updates || !doc){
             res.statusCode = 400;
             res.message = "No document found";
         } else {
             connectionSet += req.connectionID;
             res.statusCode = 200;
             res.message = "Subscribed to " + req.docID;
+            res.doc = doc->toString();
+            res.version = |updates|;
+        }
+    } else if (req.reqType == "disconnect" && req.connectionID && req.docID){
+        if(!connectionSet){
+            res.statusCode = 400;
+            res.message = "No document found";
+        } else {
+            connectionSet -= req.connectionID;
+            res.statusCode = 200;
+            res.message = "Disconnected from " + req.docID;
         }
     } else {
         res.statusCode = 400;
         res.message = "Invalid message format";
     }
-    if(!res.connectionID) res.connectionID = "unknown";
-    if(!res.docID) res.docID = "unknown";
-    if(!res.reqType) res.reqType = "unknown";
     resT <:: res;
     broadcastT <:: broadcast;
     return 1; 
@@ -761,12 +788,48 @@ node LogB {
 
 //////////////// TESTING NODE /////////////
 
-type CreateRequest = 
-<
-    string reqType,
-    shared Text doc,
-    string connectionID
->;
+node StringToDocRequest {
+    var i: trigger in<string>;
+    var o: trigger out<Request>;
+    #meta menu "Collab"
+    export ctor <
+        trigger in<string> input,
+        trigger out<Request> req
+    >: i(input), o(req) {}
+    fire {
+        o <:: <Request> <:j: <stream>(<::i);
+        return 1;
+    }
+}
+
+node DocResponseToString {
+    var i: trigger in<Response>;
+    var o: trigger out<string>;
+    #meta menu "Collab"
+    export ctor <
+        trigger in<Response> input,
+        trigger out<string> output
+    >: i(input), o(output) {}
+    fire {
+        o <:: <string>(<stream[@utf8]>() <:j: (<::i));
+        return 1;
+    }
+}
+
+node DocBroadcastToString {
+    var i: trigger in<Broadcast>;
+    var o: trigger out<string>;
+    #meta menu "Collab"
+    export ctor <
+        trigger in<Broadcast> input,
+        trigger out<string> output
+    >: i(input), o(output) {}
+    fire {
+        o <:: <string>(<stream[@utf8]>() <:j: (<::i));
+        return 1;
+    }
+}
+
 
 node MakeCreateRequest {
     var t: trigger in <shared Text>;
@@ -800,9 +863,8 @@ node GetDocId {
     export ctor <trigger in<Response> input, trigger out<bool> isDoc, trigger out<string> output> : i(input), b(isDoc), o(output){}
     fire {
         resp = <Response>(<::i);
-        var message = resp.message;
-        o <:: resp.message;
-        if($uuid_parse(message)){
+        o <:: resp.docID;
+        if($uuid_parse(resp.docID) && resp.reqType == "create"){
             b <:: true;
         } else {
             b <:: false;
@@ -810,15 +872,6 @@ node GetDocId {
         return 1;
     }
 }
-
-type PushRequest = 
-<
-    string reqType,
-    string connectionID,
-    string docID,
-    int version,
-    shared Updates updates
->;
 
 node MakePushRequest {
     var cid: trigger in <string>;
