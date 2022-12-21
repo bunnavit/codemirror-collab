@@ -737,7 +737,7 @@ node Doc
             }
         }
     } else if (req.reqType == "subscribe" && req.connectionID && req.docID) {
-        if(!connectionSet || !updates || !doc){
+        if(!connectionSet || (!updates && |updates| != 0) || !doc){
             res.statusCode = 400;
             res.message = "No document found";
         } else {
