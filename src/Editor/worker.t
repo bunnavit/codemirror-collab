@@ -10,28 +10,34 @@ type ChangeSetJSONReturn =
     string error
 >;
 
+type ChangeSetApplyReturn =
+<
+    BaseText value,
+    string error
+>;
+
 type MakeDocReturn =
 <
     BaseText value,
     string error
 >;
 
-type Updates = list<Update>;
-type Update = 
+export type Updates = list<Update>;
+export type Update = 
 <
     string connectionID,
     Changes changes
 >;
 
-type Changes = list<Change>;
-type Change = 
+export type Changes = list<Change>;
+export type Change = 
 <
     string $type,
     int i, 
     list<string $type, int i, string s> l
 >;
 
-type DocUpdate = 
+export type DocUpdate = 
 <
     string connectionID,
     ChangeSet changes
@@ -410,9 +416,9 @@ class ChangeSet {
     }
 
     // Apply the changes to a document, returning the modified document
-    method <BaseText> apply <BaseText doc> {
+    method <ChangeSetApplyReturn> apply <BaseText doc> {
         if(doc->length != getLength()){
-            $stderr <:: "Applying change set to a document with the wrong length" <:: '\n';
+            return {doc, "Applying change set to a document with the wrong length"};
         }
         var posA = 0;
         var posB = 0;
@@ -446,7 +452,7 @@ class ChangeSet {
                 posB = endB;
             }
         }
-        return doc;
+        return {doc , ""};
     }
 }
 
@@ -591,7 +597,7 @@ function <set<string>> cloneStringSet <set<string> strSet> {
 
 /////////////// NODE /////////////////////
 
-type Request = 
+export type Request = 
 <
     string reqType,
     shared Text doc,
@@ -601,7 +607,7 @@ type Request =
     shared Updates updates
 >;
 
-type Response =
+export type Response =
 <
     string connectionID,
     string docID,
@@ -612,28 +618,28 @@ type Response =
     int version
 >;
 
-type Broadcast = 
+export type Broadcast = 
 <
     string docID,
     string updates,
     shared set<string> connectionSet
 >;
 
-type CreateRequest = 
+export type CreateRequest = 
 <
     string reqType,
     shared Text doc,
     string connectionID
 >;
 
-type SubscribeRequest = 
+export type SubscribeRequest = 
 <
     string reqType,
     string connectionID,
     string docID
 >;
 
-type PushRequest = 
+export type PushRequest = 
 <
     string reqType,
     string connectionID,
@@ -687,7 +693,7 @@ node Doc
         }
     } else if (
             req.reqType == "push" && 
-            (req.version || req.version == 0) && 
+            req.version >= 0 && 
             req.docID && req.updates &&
             req.connectionID
         ){
@@ -708,9 +714,10 @@ node Doc
                 var changeSetReturn = changeSetFromJSON(update.changes);
                 var changeSet = changeSetReturn.value;
                 var error = changeSetReturn.error;
+                var applyError = (changeSet->apply(doc)).error;
                 // TODO: This should probably revert any changes if there are any errors
                 // Should not apply changes
-                if(error){
+                if(error || applyError){
                     res.statusCode = 400;
                     res.message = error;
                     newUpdates = {};
@@ -722,10 +729,7 @@ node Doc
                     break START;
                 }
                 var docUpdate: DocUpdate = {"changes": changeSet, "connectionID": update.connectionID};
-                // TODO: revisit this (prob not the best way to do this)
-                res.connectionID = update.connectionID;
                 updates ~> docUpdate;
-                changeSet->apply(doc);
                 errorIndex++;
             }
             if(|newUpdates|) {
@@ -737,7 +741,7 @@ node Doc
             }
         }
     } else if (req.reqType == "subscribe" && req.connectionID && req.docID) {
-        if(!connectionSet || (!updates && |updates| != 0) || !doc){
+        if(!connectionSet || !(|updates| >= 0) || !doc){
             res.statusCode = 400;
             res.message = "No document found";
         } else {
@@ -1353,7 +1357,7 @@ function <> changeSetTest <> {
         var test = "[[26], 244]";
         var changes = <Changes> <:j: <stream>(test);
         var changeSet = changeSetFromJSON(changes).value;
-        doc = changeSet->apply(doc);
+        doc = (changeSet->apply(doc)).value;
         var children = doc->getChildren();
         assert(|children| == 2);
         var expectedText1 = generateText(32);
@@ -1368,7 +1372,7 @@ function <> changeSetTest <> {
         var test = "[[26], 202]";
         var changes = <Changes> <:j: <stream>(test);
         var changeSet = changeSetFromJSON(changes).value;
-        doc = changeSet->apply(doc);
+        doc = (changeSet->apply(doc)).value;
         assert(doc->isLeaf());
         var expectedText = generateText(34);
         for (var i = 0; i < 5; i++) @pop expectedText;
@@ -1381,7 +1385,7 @@ function <> changeSetTest <> {
         var test = "[228, [0, \"\", \"text1\", \"text2\", \"text3\", \"text4\"]]";
         var changes = <Changes> <:j: <stream>(test);
         var changeSet = changeSetFromJSON(changes).value;
-        doc = changeSet->apply(doc);
+        doc = (changeSet->apply(doc)).value;
         assert(|doc->getChildren()| == 2);
         assertListEq(doc->getChildren()[0]->getText(), generateText(32));
         assertListEq(doc->getChildren()[1]->getText(), ["text33", "text34"] ~> generateText(4));
@@ -1392,7 +1396,7 @@ function <> changeSetTest <> {
         var test = "[89, [34, \"text20\", \"text21\", \"text22\", \"text23\"], 105]";
         var changes = <Changes> <:j: <stream>(test);
         var changeSet = changeSetFromJSON(changes).value;
-        doc = changeSet->apply(doc);
+        doc = (changeSet->apply(doc)).value;
         assert(|doc->getChildren()| == 2);
         var leaf1 = doc->getChildren()[0];
         var expectedText = generateText(14) ~> generateText(20, 23) ~> generateText(20, 32);
