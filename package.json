@@ -19,6 +19,7 @@
     "@types/node": "^16.18.3",
     "@types/react": "^18.0.25",
     "@types/react-dom": "^18.0.9",
+    "@uiw/react-codemirror": "^4.19.4",
     "codemirror": "^6.0.1",
     "framer-motion": "^7.6.12",
     "react": "^18.2.0",
