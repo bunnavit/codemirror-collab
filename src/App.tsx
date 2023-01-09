@@ -33,6 +33,8 @@ type Response = {
 function App() {
   const [ws, setWs] = useState<WebSocket>();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isSubscribing, setIsSubscribing] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [docIDInput, setDocIDInput] = useState<string>();
 
   const docConnection = useDocConnection();
@@ -68,6 +70,9 @@ function App() {
   const onMessage = (e: MessageEvent) => {
     console.log("message", e);
     const data: Response = JSON.parse(e.data);
+    const { reqType } = data;
+    if (reqType === "subscribe") setIsSubscribing(false);
+    if (reqType === "create") setIsCreating(false);
     updateDoc(data);
     // this.view.dispatch(receiveUpdates(this.view.state, updates));
     if (!data) return;
@@ -80,14 +85,16 @@ function App() {
   );
 
   const handleConnect = () => {
+    // TODO: do some request handling to set isConnecting to false i guess (timeout maybe)
     setIsConnecting(true);
     connect();
-    // TODO: do some request handling to set isConnecting to false i guess (timeout maybe)
   };
 
   const handleCreate = () => {
     const currentDoc = editorView?.state.doc;
     if (!currentDoc) return;
+    // TODO: do some request handling to set isConnecting to false i guess (timeout maybe)
+    setIsCreating(true);
     const data: Data = {
       reqType: "create",
       connectionID,
@@ -98,6 +105,8 @@ function App() {
 
   const handleSubscribe = () => {
     if (!docIDInput) return;
+    // TODO: do some request handling to set isConnecting to false i guess (timeout maybe)
+    setIsSubscribing(true);
     const data: Data = {
       reqType: "subscribe",
       connectionID,
@@ -140,7 +149,11 @@ function App() {
             <Button disabled={!ws} onClick={close}>
               Disconnect
             </Button>
-            <Button disabled={!ws} onClick={handleCreate}>
+            <Button
+              disabled={!ws}
+              onClick={handleCreate}
+              isLoading={isCreating}
+            >
               Create document
             </Button>
             <Flex>
@@ -152,7 +165,11 @@ function App() {
                 }}
                 mr={4}
               />
-              <Button disabled={!ws || !!docID} onClick={handleSubscribe}>
+              <Button
+                disabled={!ws || !!docID}
+                onClick={handleSubscribe}
+                isLoading={isSubscribing}
+              >
                 Connect
               </Button>
             </Flex>
