@@ -44,7 +44,7 @@ export function useSession(
   useEffect(updateCloseHandler, [session, onClose]);
 
   const connect = useCallback(() => {
-    const uri = "wss://j4he8ln0p9.execute-api.us-west-1.amazonaws.com/prod";
+    const uri = "wss://37lrljvw89.execute-api.us-west-1.amazonaws.com/prod";
     const ws = new WebSocket(uri);
     setSession(ws);
   }, []);
